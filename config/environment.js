@@ -24,8 +24,16 @@ module.exports = {
   MAX_LOGIN_ATTEMPTS: parseInt(process.env.MAX_LOGIN_ATTEMPTS) || 5,
   LOCK_TIME: process.env.LOCK_TIME || '15m',
 
-  // CORS
-  CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  // CORS - normalize origin (strip trailing slashes and support multiple origins)
+  CORS_ORIGIN: (() => {
+    const origin = process.env.CORS_ORIGIN || 'http://localhost:3000';
+    // Support comma-separated origins
+    if (origin.includes(',')) {
+      return origin.split(',').map(o => o.trim().replace(/\/+$/, ''));
+    }
+    // Single origin - strip trailing slash
+    return origin.trim().replace(/\/+$/, '');
+  })(),
 
   // Rate Limiting
   RATE_LIMIT_WINDOW_MS: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 900000,
