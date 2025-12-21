@@ -135,37 +135,41 @@ const createSchoolYear = async (req, res, next) => {
 
     // Auto generate weeks if requested
     if (autoGenerateWeeks) {
-      // weekStartDay: 1=Monday, 2=Tuesday, ..., 0 or 7=Sunday
-      // Default: Monday (1) to Sunday (0)
-      const weekStartDay = weekConfiguration?.weekStartDay ?? 1; // Monday
-      const weekEndDay = weekConfiguration?.weekEndDay ?? 0; // Sunday (0 = Sunday in JS Date)
-
+      // Week always starts on Monday and ends on Sunday
+      // JS Date.getDay(): 0=Sunday, 1=Monday, 2=Tuesday, ..., 6=Saturday
+      
       let currentDate = new Date(startDate);
+      currentDate.setHours(0, 0, 0, 0); // Reset to start of day
       const endDateObj = new Date(endDate);
+      endDateObj.setHours(23, 59, 59, 999); // End of day
       
       // Get current day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
-      let dayOfWeek = currentDate.getDay();
+      const dayOfWeek = currentDate.getDay();
       
-      // Convert weekStartDay to JS format (if 7, treat as 0 for Sunday)
-      const jsWeekStartDay = weekStartDay === 7 ? 0 : weekStartDay;
-      
-      // Find the next weekStartDay (Monday by default)
-      if (dayOfWeek !== jsWeekStartDay) {
-        // Calculate days to add to reach the next Monday
-        let daysToAdd = jsWeekStartDay - dayOfWeek;
-        if (daysToAdd <= 0) daysToAdd += 7; // If we passed it, go to next week
-        currentDate.setDate(currentDate.getDate() + daysToAdd);
+      // If startDate is not Monday, find the NEXT Monday
+      // Monday = 1 in JS Date.getDay()
+      if (dayOfWeek !== 1) {
+        // Calculate days to add to reach next Monday
+        // If Sunday (0): add 1 day
+        // If Tuesday (2): add 6 days
+        // If Wednesday (3): add 5 days
+        // If Thursday (4): add 4 days
+        // If Friday (5): add 3 days
+        // If Saturday (6): add 2 days
+        const daysToMonday = dayOfWeek === 0 ? 1 : (8 - dayOfWeek);
+        currentDate.setDate(currentDate.getDate() + daysToMonday);
       }
 
       const weeksToCreate = [];
       let weekNumber = 1;
 
       while (currentDate <= endDateObj) {
-        // Week end is 6 days after start (Mon + 6 = Sun)
+        // Week end is Sunday = start date + 6 days
         const weekEndDate = new Date(currentDate);
-        weekEndDate.setDate(weekEndDate.getDate() + 6); // Always 7 days (0-6 = 7 days)
+        weekEndDate.setDate(weekEndDate.getDate() + 6);
+        weekEndDate.setHours(23, 59, 59, 999);
 
-        // Don't create week if it extends beyond school year end date
+        // Don't create week if Sunday exceeds school year end date
         if (weekEndDate > endDateObj) break;
 
         weeksToCreate.push({
