@@ -135,15 +135,25 @@ const createSchoolYear = async (req, res, next) => {
 
     // Auto generate weeks if requested
     if (autoGenerateWeeks) {
-      const weekStartDay = weekConfiguration?.weekStartDay || 2;
-      const weekEndDay = weekConfiguration?.weekEndDay || 6;
+      // weekStartDay: 1=Monday, 2=Tuesday, ..., 0 or 7=Sunday
+      // Default: Monday (1) to Sunday (0)
+      const weekStartDay = weekConfiguration?.weekStartDay ?? 1; // Monday
+      const weekEndDay = weekConfiguration?.weekEndDay ?? 0; // Sunday (0 = Sunday in JS Date)
 
       let currentDate = new Date(startDate);
       const endDateObj = new Date(endDate);
-      const dayOfWeek = currentDate.getDay() === 0 ? 7 : currentDate.getDay();
       
-      if (dayOfWeek !== weekStartDay) {
-        const daysToAdd = (weekStartDay - dayOfWeek + 7) % 7;
+      // Get current day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
+      let dayOfWeek = currentDate.getDay();
+      
+      // Convert weekStartDay to JS format (if 7, treat as 0 for Sunday)
+      const jsWeekStartDay = weekStartDay === 7 ? 0 : weekStartDay;
+      
+      // Find the next weekStartDay (Monday by default)
+      if (dayOfWeek !== jsWeekStartDay) {
+        // Calculate days to add to reach the next Monday
+        let daysToAdd = jsWeekStartDay - dayOfWeek;
+        if (daysToAdd <= 0) daysToAdd += 7; // If we passed it, go to next week
         currentDate.setDate(currentDate.getDate() + daysToAdd);
       }
 
@@ -151,9 +161,11 @@ const createSchoolYear = async (req, res, next) => {
       let weekNumber = 1;
 
       while (currentDate <= endDateObj) {
+        // Week end is 6 days after start (Mon + 6 = Sun)
         const weekEndDate = new Date(currentDate);
-        weekEndDate.setDate(weekEndDate.getDate() + (weekEndDay - weekStartDay));
+        weekEndDate.setDate(weekEndDate.getDate() + 6); // Always 7 days (0-6 = 7 days)
 
+        // Don't create week if it extends beyond school year end date
         if (weekEndDate > endDateObj) break;
 
         weeksToCreate.push({
@@ -164,6 +176,7 @@ const createSchoolYear = async (req, res, next) => {
           status: 'Nháp',
         });
 
+        // Move to next Monday (7 days later)
         currentDate.setDate(currentDate.getDate() + 7);
         weekNumber++;
       }
