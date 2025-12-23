@@ -63,12 +63,12 @@ const disciplineGradingSchema = new mongoose.Schema(
           default: 5,
         },
 
-        // Các ngày áp dụng (2=Thứ 2, 3=Thứ 3, ..., 6=Thứ 6)
+        // Các ngày áp dụng (2=Thứ 2, 3=Thứ 3, 4=Thứ 4, 5=Thứ 5)
         applicableDays: [
           {
             type: Number,
             min: 2,
-            max: 6,
+            max: 5,
           },
         ],
 
@@ -79,7 +79,7 @@ const disciplineGradingSchema = new mongoose.Schema(
             day: {
               type: Number,
               min: 2,
-              max: 6,
+              max: 5,
               required: true,
             },
 

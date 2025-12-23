@@ -5,7 +5,7 @@ const handleValidationErrors = (req, res, next) => {
   if (!errors.isEmpty()) {
     return res.status(400).json({
       success: false,
-      message: 'Validation failed',
+      message: 'Lỗi xác thực dữ liệu',
       errors: errors.array(),
     });
   }
@@ -16,31 +16,31 @@ const validateRegister = [
   body('email')
     .isEmail()
     .normalizeEmail()
-    .withMessage('Please provide a valid email'),
+    .withMessage('Vui lòng nhập email hợp lệ'),
   body('password')
     .isLength({ min: 8 })
-    .withMessage('Password must be at least 8 characters')
+    .withMessage('Mật khẩu phải có ít nhất 8 ký tự')
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
-    .withMessage('Password must contain uppercase, lowercase, number, and special character'),
+    .withMessage('Mật khẩu phải chứa: chữ hoa, chữ thường, số và ký tự đặc biệt'),
   body('fullName')
     .trim()
     .notEmpty()
-    .withMessage('Full name is required')
+    .withMessage('Họ và tên là bắt buộc')
     .isLength({ min: 2 })
-    .withMessage('Full name must be at least 2 characters'),
+    .withMessage('Họ và tên phải có ít nhất 2 ký tự'),
   body('role')
     .isIn(['Cờ đỏ', 'Giáo viên chủ nhiệm', 'Quản trị'])
-    .withMessage('Invalid role'),
+    .withMessage('Vai trò không hợp lệ'),
 ];
 
 const validateLogin = [
   body('email')
     .isEmail()
     .normalizeEmail()
-    .withMessage('Please provide a valid email'),
+    .withMessage('Vui lòng nhập email hợp lệ'),
   body('password')
     .notEmpty()
-    .withMessage('Password is required'),
+    .withMessage('Vui lòng nhập mật khẩu'),
 ];
 
 const validateUpdateProfile = [
@@ -48,26 +48,26 @@ const validateUpdateProfile = [
     .optional()
     .trim()
     .isLength({ min: 2 })
-    .withMessage('Full name must be at least 2 characters'),
+    .withMessage('Họ và tên phải có ít nhất 2 ký tự'),
   body('email')
     .optional()
     .isEmail()
     .normalizeEmail()
-    .withMessage('Please provide a valid email'),
+    .withMessage('Vui lòng nhập email hợp lệ'),
 ];
 
 const validateChangePassword = [
   body('currentPassword')
     .notEmpty()
-    .withMessage('Current password is required'),
+    .withMessage('Vui lòng nhập mật khẩu hiện tại'),
   body('newPassword')
     .isLength({ min: 8 })
-    .withMessage('New password must be at least 8 characters')
+    .withMessage('Mật khẩu mới phải có ít nhất 8 ký tự')
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
-    .withMessage('Password must contain uppercase, lowercase, number, and special character'),
+    .withMessage('Mật khẩu phải chứa: chữ hoa, chữ thường, số và ký tự đặc biệt'),
   body('confirmPassword')
     .custom((value, { req }) => value === req.body.newPassword)
-    .withMessage('Passwords do not match'),
+    .withMessage('Mật khẩu xác nhận không khớp'),
 ];
 
 const validateSchoolYear = [
