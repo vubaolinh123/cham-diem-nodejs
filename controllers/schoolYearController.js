@@ -285,7 +285,81 @@ const updateSchoolYear = async (req, res, next) => {
 };
 
 /**
- * Xóa năm học
+ * Xem trước dữ liệu sẽ bị xóa khi xóa năm học
+ * @route GET /api/school-years/:id/delete-preview
+ * @access Admin
+ */
+const getDeletePreview = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const schoolYear = await SchoolYear.findById(id);
+    if (!schoolYear) {
+      return sendError(res, 404, 'Năm học không tìm thấy');
+    }
+
+    // Import all related models
+    const Class = require('../models/Class');
+    const Student = require('../models/Student');
+    const DisciplineGrading = require('../models/DisciplineGrading');
+    const ClassAcademicGrading = require('../models/ClassAcademicGrading');
+    const ViolationLog = require('../models/ViolationLog');
+    const WeeklySummary = require('../models/WeeklySummary');
+    const MonthlySummary = require('../models/MonthlySummary');
+
+    // Get all classes for this school year to count their related data
+    const classes = await Class.find({ schoolYear: id });
+    const classIds = classes.map(c => c._id);
+
+    // Count all related data
+    const [
+      weeksCount,
+      classesCount,
+      studentsCount,
+      disciplineGradingsCount,
+      academicGradingsCount,
+      violationsCount,
+      weeklySummariesCount,
+      monthlySummariesCount,
+    ] = await Promise.all([
+      Week.countDocuments({ schoolYear: id }),
+      Class.countDocuments({ schoolYear: id }),
+      Student.countDocuments({ class: { $in: classIds } }),
+      DisciplineGrading.countDocuments({ schoolYear: id }),
+      ClassAcademicGrading.countDocuments({ schoolYear: id }),
+      ViolationLog.countDocuments({ class: { $in: classIds } }),
+      WeeklySummary.countDocuments({ class: { $in: classIds } }),
+      MonthlySummary.countDocuments({ schoolYear: id }),
+    ]);
+
+    const total = weeksCount + classesCount + studentsCount + disciplineGradingsCount + 
+                  academicGradingsCount + violationsCount + weeklySummariesCount + monthlySummariesCount;
+
+    return sendResponse(res, 200, true, 'Lấy thông tin xóa thành công', {
+      item: {
+        _id: schoolYear._id,
+        year: schoolYear.year,
+        status: schoolYear.status,
+      },
+      willDelete: {
+        weeks: weeksCount,
+        classes: classesCount,
+        students: studentsCount,
+        disciplineGradings: disciplineGradingsCount,
+        academicGradings: academicGradingsCount,
+        violations: violationsCount,
+        weeklySummaries: weeklySummariesCount,
+        monthlySummaries: monthlySummariesCount,
+        total,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Xóa năm học và tất cả dữ liệu liên quan
  * @route DELETE /api/school-years/:id
  * @access Admin
  */
@@ -293,13 +367,82 @@ const deleteSchoolYear = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const schoolYear = await SchoolYear.findByIdAndDelete(id);
-
+    const schoolYear = await SchoolYear.findById(id);
     if (!schoolYear) {
       return sendError(res, 404, 'Năm học không tìm thấy');
     }
 
-    return sendResponse(res, 200, true, 'Xóa năm học thành công');
+    // Don't allow deleting active school year
+    if (schoolYear.status === 'Hoạt động') {
+      return sendError(res, 400, 'Không thể xóa năm học đang hoạt động');
+    }
+
+    // Import all related models
+    const Class = require('../models/Class');
+    const Student = require('../models/Student');
+    const DisciplineGrading = require('../models/DisciplineGrading');
+    const ClassAcademicGrading = require('../models/ClassAcademicGrading');
+    const ViolationLog = require('../models/ViolationLog');
+    const WeeklySummary = require('../models/WeeklySummary');
+    const MonthlySummary = require('../models/MonthlySummary');
+    const ConductScore = require('../models/ConductScore');
+    const AcademicScore = require('../models/AcademicScore');
+
+    // Get all classes for this school year to delete their related data
+    const classes = await Class.find({ schoolYear: id });
+    const classIds = classes.map(c => c._id);
+
+    // Delete all related data and get counts
+    const [
+      weeksResult,
+      studentsResult,
+      disciplineResult,
+      academicResult,
+      violationsResult,
+      weeklySummariesResult,
+      monthlySummariesResult,
+      conductResult,
+      academicScoreResult,
+    ] = await Promise.all([
+      Week.deleteMany({ schoolYear: id }),
+      Student.deleteMany({ class: { $in: classIds } }),
+      DisciplineGrading.deleteMany({ schoolYear: id }),
+      ClassAcademicGrading.deleteMany({ schoolYear: id }),
+      ViolationLog.deleteMany({ class: { $in: classIds } }),
+      WeeklySummary.deleteMany({ class: { $in: classIds } }),
+      MonthlySummary.deleteMany({ schoolYear: id }),
+      ConductScore.deleteMany({ class: { $in: classIds } }),
+      AcademicScore.deleteMany({ class: { $in: classIds } }),
+    ]);
+
+    // Delete all classes
+    const classesResult = await Class.deleteMany({ schoolYear: id });
+
+    // Delete the school year itself
+    await SchoolYear.findByIdAndDelete(id);
+
+    const deleted = {
+      schoolYear: {
+        _id: schoolYear._id,
+        year: schoolYear.year,
+      },
+      weeks: weeksResult.deletedCount,
+      classes: classesResult.deletedCount,
+      students: studentsResult.deletedCount,
+      disciplineGradings: disciplineResult.deletedCount,
+      academicGradings: academicResult.deletedCount,
+      violations: violationsResult.deletedCount,
+      weeklySummaries: weeklySummariesResult.deletedCount,
+      monthlySummaries: monthlySummariesResult.deletedCount,
+      conductScores: conductResult.deletedCount,
+      academicScores: academicScoreResult.deletedCount,
+      total: weeksResult.deletedCount + classesResult.deletedCount + studentsResult.deletedCount +
+             disciplineResult.deletedCount + academicResult.deletedCount + violationsResult.deletedCount +
+             weeklySummariesResult.deletedCount + monthlySummariesResult.deletedCount +
+             conductResult.deletedCount + academicScoreResult.deletedCount,
+    };
+
+    return sendResponse(res, 200, true, 'Xóa năm học và dữ liệu liên quan thành công', { deleted });
   } catch (error) {
     next(error);
   }
@@ -315,58 +458,56 @@ const generateWeeks = async (req, res, next) => {
     const { id } = req.params;
 
     const schoolYear = await SchoolYear.findById(id);
+
     if (!schoolYear) {
       return sendError(res, 404, 'Năm học không tìm thấy');
     }
 
-    // Check if weeks already exist for this school year
-    const existingWeeks = await Week.find({ schoolYear: id });
-    if (existingWeeks.length > 0) {
-      return sendError(res, 400, `Đã có ${existingWeeks.length} tuần được tạo cho năm học này. Xóa trước nếu muốn tạo lại.`);
+    // Check if weeks already exist
+    const existingWeeks = await Week.countDocuments({ schoolYear: id });
+    if (existingWeeks > 0) {
+      return sendError(res, 400, 'Năm học này đã có tuần học được tạo');
     }
 
-    const startDate = new Date(schoolYear.startDate);
+    // Generate weeks from startDate to endDate
+    const weeks = [];
+    let currentDate = new Date(schoolYear.startDate);
     const endDate = new Date(schoolYear.endDate);
-    const weekStartDay = schoolYear.weekConfiguration?.weekStartDay || 2; // Default Monday = 2
-    const weekEndDay = schoolYear.weekConfiguration?.weekEndDay || 6; // Default Friday = 6
-
-    // Find the first Monday (weekStartDay) on or after startDate
-    let currentDate = new Date(startDate);
-    const dayOfWeek = currentDate.getDay() === 0 ? 7 : currentDate.getDay(); // Convert Sunday 0 -> 7
-    if (dayOfWeek !== weekStartDay) {
-      const daysToAdd = (weekStartDay - dayOfWeek + 7) % 7;
-      currentDate.setDate(currentDate.getDate() + daysToAdd);
-    }
-
-    const weeksToCreate = [];
     let weekNumber = 1;
 
-    while (currentDate <= endDate) {
-      // Calculate week end date
-      const weekEndDate = new Date(currentDate);
-      weekEndDate.setDate(weekEndDate.getDate() + (weekEndDay - weekStartDay));
-
-      // Don't create week if end date is past school year end
-      if (weekEndDate > endDate) break;
-
-      weeksToCreate.push({
-        schoolYear: id,
-        weekNumber,
-        startDate: new Date(currentDate),
-        endDate: new Date(weekEndDate),
-        status: 'Nháp',
-      });
-
-      // Move to next week
-      currentDate.setDate(currentDate.getDate() + 7);
-      weekNumber++;
+    // Find the first Monday
+    while (currentDate.getDay() !== 1 && currentDate < endDate) {
+      currentDate.setDate(currentDate.getDate() + 1);
     }
 
-    if (weeksToCreate.length === 0) {
+    while (currentDate < endDate) {
+      const weekStart = new Date(currentDate);
+      const weekEnd = new Date(currentDate);
+      weekEnd.setDate(weekEnd.getDate() + 6); // Sunday
+
+      // Don't exceed school year end date
+      if (weekEnd > endDate) {
+        weekEnd.setTime(endDate.getTime());
+      }
+
+      weeks.push({
+        schoolYear: id,
+        weekNumber,
+        startDate: weekStart,
+        endDate: weekEnd,
+        status: 'Chờ',
+        createdBy: req.userId,
+      });
+
+      weekNumber++;
+      currentDate.setDate(currentDate.getDate() + 7); // Next Monday
+    }
+
+    if (weeks.length === 0) {
       return sendError(res, 400, 'Không thể tạo tuần nào với khoảng thời gian này');
     }
 
-    const createdWeeks = await Week.insertMany(weeksToCreate);
+    const createdWeeks = await Week.insertMany(weeks);
 
     return sendResponse(res, 201, true, `Tạo ${createdWeeks.length} tuần thành công`, {
       weeks: createdWeeks,
@@ -385,6 +526,8 @@ module.exports = {
   updateSchoolYear,
   deleteSchoolYear,
   generateWeeks,
+  getDeletePreview,
 };
+
 
 

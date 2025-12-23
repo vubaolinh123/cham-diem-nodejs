@@ -3,6 +3,7 @@ const Week = require('../models/Week');
 const Student = require('../models/Student');
 const ViolationType = require('../models/ViolationType');
 const { sendResponse, sendError } = require('../utils/helpers');
+const { updateWeeklySummary } = require('../utils/weeklySummaryHelper');
 
 /**
  * Lấy tất cả vi phạm
@@ -18,6 +19,7 @@ const getAllViolationLogs = async (req, res, next) => {
       violationType,
       status,
       reportedBy,
+      severity,
       startDate,
       endDate,
       page = 1,
@@ -31,6 +33,7 @@ const getAllViolationLogs = async (req, res, next) => {
     if (violationType) filter.violationType = violationType;
     if (status) filter.status = status;
     if (reportedBy) filter.reportedBy = reportedBy;
+    if (severity) filter.severity = severity;
 
     // Lọc theo ngày
     if (startDate || endDate) {
@@ -46,7 +49,7 @@ const getAllViolationLogs = async (req, res, next) => {
       .populate('student', 'studentId fullName')
       .populate('class', 'name grade')
       .populate('violationType', 'name category severity')
-      .populate('reportedBy', 'fullName email')
+      .populate('reportedBy', 'fullName email role')
       .populate('approvedBy', 'fullName email')
       .skip(skip)
       .limit(parseInt(limit))
@@ -82,7 +85,7 @@ const getViolationLogById = async (req, res, next) => {
       .populate('student', 'studentId fullName')
       .populate('class', 'name grade')
       .populate('violationType', 'name category severity')
-      .populate('reportedBy', 'fullName email')
+      .populate('reportedBy', 'fullName email role')
       .populate('approvedBy', 'fullName email')
       .populate('duplicateOf');
 
@@ -101,81 +104,57 @@ const getViolationLogById = async (req, res, next) => {
 /**
  * Tạo vi phạm mới
  * @route POST /api/violation-logs
- * @access Red Flag, Homeroom Teacher, Admin
+ * @access Authenticated
  */
 const createViolationLog = async (req, res, next) => {
   try {
     const {
-      week,
-      date,
       student,
       class: classId,
       violationType,
+      date,
       description,
-      violationTime,
-      location,
-      evidence,
-      notes,
+      week,
+      severity,
+      images,
+      status
     } = req.body;
 
-    // Kiểm tra tuần tồn tại
-    const weekData = await Week.findById(week);
-    if (!weekData) {
-      return sendError(res, 400, 'Tuần không tìm thấy');
+    // Validate required fields
+    if (!student || !classId || !violationType || !week || !date) {
+      return sendError(res, 400, 'Vui lòng điền đầy đủ thông tin bắt buộc');
     }
 
-    // Kiểm tra học sinh tồn tại
-    const studentData = await Student.findById(student);
-    if (!studentData) {
-      return sendError(res, 400, 'Học sinh không tìm thấy');
-    }
-
-    // Kiểm tra loại vi phạm tồn tại
     const violationTypeData = await ViolationType.findById(violationType);
     if (!violationTypeData) {
       return sendError(res, 400, 'Loại vi phạm không tìm thấy');
     }
 
-    // Kiểm tra ngày trong tuần
-    const violationDate = new Date(date);
-    if (violationDate < new Date(weekData.startDate) || violationDate > new Date(weekData.endDate)) {
-      return sendError(res, 400, 'Ngày vi phạm phải nằm trong tuần');
-    }
-
-    // Kiểm tra trùng lặp
-    const duplicate = await detectDuplicate(student, violationType, date);
-
     const violation = new ViolationLog({
-      week,
-      date,
       student,
       class: classId,
       violationType,
+      date,
       description,
-      violationTime,
-      location,
-      evidence: evidence || [],
+      week,
+      severity: severity || violationTypeData.severity,
       reportedBy: req.userId,
-      severity: violationTypeData.severity,
-      category: violationTypeData.category,
-      isDuplicate: !!duplicate,
-      duplicateOf: duplicate ? duplicate._id : null,
-      notes,
-      createdBy: req.userId,
+      status: status || 'Chờ duyệt',
+      images
     });
 
     await violation.save();
+
     await violation.populate([
       { path: 'week', select: 'weekNumber startDate endDate' },
       { path: 'student', select: 'studentId fullName' },
       { path: 'class', select: 'name grade' },
       { path: 'violationType', select: 'name category severity' },
-      { path: 'reportedBy', select: 'fullName email' },
+      { path: 'reportedBy', select: 'fullName email role' },
     ]);
 
     return sendResponse(res, 201, true, 'Tạo vi phạm thành công', {
       violation,
-      isDuplicate: !!duplicate,
     });
   } catch (error) {
     next(error);
@@ -185,44 +164,58 @@ const createViolationLog = async (req, res, next) => {
 /**
  * Cập nhật vi phạm
  * @route PUT /api/violation-logs/:id
- * @access Red Flag, Homeroom Teacher, Admin
+ * @access Authenticated
  */
 const updateViolationLog = async (req, res, next) => {
   try {
     const { id } = req.params;
     const {
+      student,
+      class: classId,
+      violationType,
+      date,
       description,
-      violationTime,
-      location,
-      evidence,
-      notes,
+      week,
+      severity,
+      images,
+      status
     } = req.body;
 
-    const violation = await ViolationLog.findById(id);
+    let violation = await ViolationLog.findById(id);
 
     if (!violation) {
       return sendError(res, 404, 'Vi phạm không tìm thấy');
     }
 
-    // Không cho phép sửa vi phạm đã duyệt
-    if (violation.status === 'Đã duyệt') {
-      return sendError(res, 409, 'Không thể sửa vi phạm đã duyệt');
-    }
-
+    if (date) violation.date = date;
+    if (student) violation.student = student;
+    if (classId) violation.class = classId;
+    if (week) violation.week = week;
     if (description) violation.description = description;
-    if (violationTime) violation.violationTime = violationTime;
-    if (location) violation.location = location;
-    if (evidence) violation.evidence = evidence;
-    if (notes) violation.notes = notes;
+    if (images) violation.images = images;
+    
+    if (violationType) {
+        // Validation check for violationType existence could be added here
+        violation.violationType = violationType;
+    }
+    if (severity) violation.severity = severity;
+
+    // Not updating status here to enforce approve/reject workflow, 
+    // unless it is still pending? For now, we trust the Dialogs to handle status.
+    // But if status is passed and valid (e.g. back to pending), maybe allow?
+    // Let's rely on specific endpoints for status changes for now to be safe.
 
     violation.updatedBy = req.userId;
+
     await violation.save();
+
     await violation.populate([
       { path: 'week', select: 'weekNumber startDate endDate' },
       { path: 'student', select: 'studentId fullName' },
       { path: 'class', select: 'name grade' },
       { path: 'violationType', select: 'name category severity' },
-      { path: 'reportedBy', select: 'fullName email' },
+      { path: 'reportedBy', select: 'fullName email role' },
+      { path: 'approvedBy', select: 'fullName email' },
     ]);
 
     return sendResponse(res, 200, true, 'Cập nhật vi phạm thành công', {
@@ -258,6 +251,10 @@ const approveViolation = async (req, res, next) => {
     violation.updatedBy = req.userId;
 
     await violation.save();
+    
+    // Valid for unpopulated fields (IDs)
+    await updateWeeklySummary(violation.week, violation.class, req.userId);
+
     await violation.populate([
       { path: 'week', select: 'weekNumber startDate endDate' },
       { path: 'student', select: 'studentId fullName' },
@@ -284,6 +281,10 @@ const rejectViolation = async (req, res, next) => {
     const { id } = req.params;
     const { reason } = req.body;
 
+    if (!reason) {
+      return sendError(res, 400, 'Lý do từ chối là bắt buộc');
+    }
+
     const violation = await ViolationLog.findById(id);
 
     if (!violation) {
@@ -297,10 +298,14 @@ const rejectViolation = async (req, res, next) => {
     violation.status = 'Từ chối';
     violation.approvedBy = req.userId;
     violation.approvedDate = new Date();
-    violation.notes = reason || violation.notes;
+    violation.notes = reason;
     violation.updatedBy = req.userId;
 
     await violation.save();
+
+    // Valid for unpopulated fields (IDs)
+    await updateWeeklySummary(violation.week, violation.class, req.userId);
+
     await violation.populate([
       { path: 'week', select: 'weekNumber startDate endDate' },
       { path: 'student', select: 'studentId fullName' },
@@ -336,7 +341,14 @@ const deleteViolationLog = async (req, res, next) => {
       return sendError(res, 409, 'Không thể xóa vi phạm đã duyệt');
     }
 
+    // Store week and class before deletion
+    const weekId = violation.week;
+    const classId = violation.class;
+
     await ViolationLog.findByIdAndDelete(id);
+
+    // Auto-update WeeklySummary after deletion
+    await updateWeeklySummary(weekId, classId, req.userId);
 
     return sendResponse(res, 200, true, 'Xóa vi phạm thành công');
   } catch (error) {

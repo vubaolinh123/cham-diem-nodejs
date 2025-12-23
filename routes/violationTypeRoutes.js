@@ -1,34 +1,16 @@
 const express = require('express');
 const router = express.Router();
-const {
-  getAllViolationTypes,
-  getViolationTypeById,
-  createViolationType,
-  updateViolationType,
-  deleteViolationType,
-} = require('../controllers/violationTypeController');
+const violationTypeController = require('../controllers/violationTypeController');
 const { authenticate, authorize } = require('../middlewares/auth');
-const { validateViolationType } = require('../middlewares/validation');
 
-/**
- * Loại vi phạm routes
- * Base path: /api/violation-types
- */
+// Public routes (cho phép xem danh sách)
+router.get('/', violationTypeController.getAllViolationTypes);
+router.get('/:id', violationTypeController.getViolationTypeById);
 
-// Lấy tất cả loại vi phạm (Public)
-router.get('/', getAllViolationTypes);
-
-// Lấy loại vi phạm theo ID (Public)
-router.get('/:id', getViolationTypeById);
-
-// Tạo loại vi phạm mới (Admin)
-router.post('/', authenticate, authorize('Quản trị'), validateViolationType, createViolationType);
-
-// Cập nhật loại vi phạm (Admin)
-router.put('/:id', authenticate, authorize('Quản trị'), validateViolationType, updateViolationType);
-
-// Xóa loại vi phạm (Admin)
-router.delete('/:id', authenticate, authorize('Quản trị'), deleteViolationType);
+// Protected routes (chỉ admin mới được tạo/sửa/xóa)
+router.post('/', authenticate, authorize('Quản trị'), violationTypeController.createViolationType);
+router.put('/:id', authenticate, authorize('Quản trị'), violationTypeController.updateViolationType);
+router.get('/:id/delete-preview', authenticate, authorize('Quản trị'), violationTypeController.getDeletePreview);
+router.delete('/:id', authenticate, authorize('Quản trị'), violationTypeController.deleteViolationType);
 
 module.exports = router;
-

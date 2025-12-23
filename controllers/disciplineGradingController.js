@@ -2,6 +2,7 @@ const DisciplineGrading = require('../models/DisciplineGrading');
 const Class = require('../models/Class');
 const Week = require('../models/Week');
 const SchoolYear = require('../models/SchoolYear');
+const { updateWeeklySummary } = require('../utils/weeklySummaryHelper');
 
 // Helper function để populate
 const populateOptions = [
@@ -205,6 +206,9 @@ exports.update = async (req, res) => {
     // Save will trigger pre-save hook to recalculate totalWeeklyScore, percentage, flag
     await disciplineGrading.save();
 
+    // Auto-update WeeklySummary
+    await updateWeeklySummary(disciplineGrading.week, disciplineGrading.class, req.user?._id);
+
     // Populate and return
     await disciplineGrading.populate(populateOptions);
 
@@ -396,19 +400,36 @@ exports.startGrading = async (req, res) => {
     }
 
     // Get conduct configuration items from school year
-    const conductItems = schoolYear.conductConfiguration?.items || [
-      { name: 'Sinh hoạt dưới cờ', applicableDays: [2] },
-      { name: 'Truy bài', applicableDays: [3, 4, 5] },
-      { name: 'Đeo thẻ', applicableDays: [2, 3, 4, 5] },
-      { name: 'Vệ sinh lớp + khu vực', applicableDays: [2, 3, 4, 5] },
-      { name: 'Đi học đúng giờ', applicableDays: [2, 3, 4, 5] },
-      { name: 'Nếp sống văn minh', applicableDays: [2, 3, 4, 5] },
-    ];
+    // Get conduct configuration items from school year
+    let rawConductItems = [];
+    if (schoolYear.conductConfiguration && schoolYear.conductConfiguration.items && schoolYear.conductConfiguration.items.length > 0) {
+      // Ensure we have plain objects, not Mongoose documents
+      rawConductItems = schoolYear.conductConfiguration.items.map(item => 
+        typeof item.toObject === 'function' ? item.toObject() : item
+      );
+    } else {
+      rawConductItems = [
+        { name: 'Sinh hoạt dưới cờ', applicableDays: [2] },
+        { name: 'Truy bài', applicableDays: [3, 4, 5] },
+        { name: 'Đeo thẻ', applicableDays: [2, 3, 4, 5] },
+        { name: 'Vệ sinh lớp + khu vực', applicableDays: [2, 3, 4, 5] },
+        { name: 'Đi học đúng giờ', applicableDays: [2, 3, 4, 5] },
+        { name: 'Nếp sống văn minh', applicableDays: [2, 3, 4, 5] },
+      ];
+    }
+    
+    // Filter out day 6 (Thứ 6) from applicableDays - school week is Mon-Thu only
+    const conductItems = rawConductItems.map(item => ({
+      ...item,
+      applicableDays: (item.applicableDays || [2, 3, 4, 5]).filter(day => day >= 2 && day <= 5)
+    }));
+    
     const maxPointsPerItem = schoolYear.conductConfiguration?.maxPointsPerItem || 5;
 
     // Build items with default scores (full marks)
     const items = conductItems.map((item, index) => {
-      const dayScores = (item.applicableDays || [2, 3, 4, 5]).map(day => ({
+      const validDays = item.applicableDays.length > 0 ? item.applicableDays : [2, 3, 4, 5];
+      const dayScores = validDays.map(day => ({
         day,
         violations: 0,
         score: maxPointsPerItem,
@@ -419,7 +440,7 @@ exports.startGrading = async (req, res) => {
         itemId: index + 1,
         itemName: item.name,
         maxScore: maxPointsPerItem,
-        applicableDays: item.applicableDays || [2, 3, 4, 5],
+        applicableDays: validDays,
         dayScores,
         totalScore: dayScores.reduce((sum, ds) => sum + ds.score, 0),
       };

@@ -181,7 +181,73 @@ const updateClass = async (req, res, next) => {
 };
 
 /**
- * Xóa lớp
+ * Xem trước dữ liệu sẽ bị xóa khi xóa lớp
+ * @route GET /api/classes/:id/delete-preview
+ * @access Admin
+ */
+const getDeletePreview = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const classData = await Class.findById(id).populate('schoolYear', 'year');
+    if (!classData) {
+      return sendError(res, 404, 'Lớp không tìm thấy');
+    }
+
+    // Count all related data
+    const DisciplineGrading = require('../models/DisciplineGrading');
+    const ClassAcademicGrading = require('../models/ClassAcademicGrading');
+    const ViolationLog = require('../models/ViolationLog');
+    const WeeklySummary = require('../models/WeeklySummary');
+    const ConductScore = require('../models/ConductScore');
+    const AcademicScore = require('../models/AcademicScore');
+
+    const [
+      studentsCount,
+      disciplineGradingsCount,
+      academicGradingsCount,
+      violationsCount,
+      weeklySummariesCount,
+      conductScoresCount,
+      academicScoresCount,
+    ] = await Promise.all([
+      Student.countDocuments({ class: id }),
+      DisciplineGrading.countDocuments({ class: id }),
+      ClassAcademicGrading.countDocuments({ class: id }),
+      ViolationLog.countDocuments({ class: id }),
+      WeeklySummary.countDocuments({ class: id }),
+      ConductScore.countDocuments({ class: id }),
+      AcademicScore.countDocuments({ class: id }),
+    ]);
+
+    const total = studentsCount + disciplineGradingsCount + academicGradingsCount + 
+                  violationsCount + weeklySummariesCount + conductScoresCount + academicScoresCount;
+
+    return sendResponse(res, 200, true, 'Lấy thông tin xóa thành công', {
+      item: {
+        _id: classData._id,
+        name: classData.name,
+        grade: classData.grade,
+        schoolYear: classData.schoolYear?.year,
+      },
+      willDelete: {
+        students: studentsCount,
+        disciplineGradings: disciplineGradingsCount,
+        academicGradings: academicGradingsCount,
+        violations: violationsCount,
+        weeklySummaries: weeklySummariesCount,
+        conductScores: conductScoresCount,
+        academicScores: academicScoresCount,
+        total,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Xóa lớp và tất cả dữ liệu liên quan
  * @route DELETE /api/classes/:id
  * @access Admin
  */
@@ -189,13 +255,62 @@ const deleteClass = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const classData = await Class.findByIdAndDelete(id);
-
+    const classData = await Class.findById(id).populate('schoolYear', 'year');
     if (!classData) {
       return sendError(res, 404, 'Lớp không tìm thấy');
     }
 
-    return sendResponse(res, 200, true, 'Xóa lớp thành công');
+    // Import related models
+    const DisciplineGrading = require('../models/DisciplineGrading');
+    const ClassAcademicGrading = require('../models/ClassAcademicGrading');
+    const ViolationLog = require('../models/ViolationLog');
+    const WeeklySummary = require('../models/WeeklySummary');
+    const ConductScore = require('../models/ConductScore');
+    const AcademicScore = require('../models/AcademicScore');
+
+    // Delete all related data and get counts
+    const [
+      studentsResult,
+      disciplineResult,
+      academicResult,
+      violationsResult,
+      summariesResult,
+      conductResult,
+      academicScoreResult,
+    ] = await Promise.all([
+      Student.deleteMany({ class: id }),
+      DisciplineGrading.deleteMany({ class: id }),
+      ClassAcademicGrading.deleteMany({ class: id }),
+      ViolationLog.deleteMany({ class: id }),
+      WeeklySummary.deleteMany({ class: id }),
+      ConductScore.deleteMany({ class: id }),
+      AcademicScore.deleteMany({ class: id }),
+    ]);
+
+    // Delete the class itself
+    await Class.findByIdAndDelete(id);
+
+    const deleted = {
+      class: {
+        _id: classData._id,
+        name: classData.name,
+        grade: classData.grade,
+        schoolYear: classData.schoolYear?.year,
+      },
+      students: studentsResult.deletedCount,
+      disciplineGradings: disciplineResult.deletedCount,
+      academicGradings: academicResult.deletedCount,
+      violations: violationsResult.deletedCount,
+      weeklySummaries: summariesResult.deletedCount,
+      conductScores: conductResult.deletedCount,
+      academicScores: academicScoreResult.deletedCount,
+      total: studentsResult.deletedCount + disciplineResult.deletedCount + 
+             academicResult.deletedCount + violationsResult.deletedCount + 
+             summariesResult.deletedCount + conductResult.deletedCount + 
+             academicScoreResult.deletedCount,
+    };
+
+    return sendResponse(res, 200, true, 'Xóa lớp và dữ liệu liên quan thành công', { deleted });
   } catch (error) {
     next(error);
   }
@@ -250,5 +365,7 @@ module.exports = {
   updateClass,
   deleteClass,
   getClassStudents,
+  getDeletePreview,
 };
+
 

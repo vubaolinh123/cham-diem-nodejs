@@ -7,6 +7,7 @@ const {
   updateClass,
   deleteClass,
   getClassStudents,
+  getDeletePreview,
 } = require('../controllers/classController');
 const { authenticate, authorize } = require('../middlewares/auth');
 const { validateClass } = require('../middlewares/validation');
@@ -25,6 +26,9 @@ router.get('/:id', authenticate, getClassById);
 // Lấy danh sách học sinh của lớp (Authenticated)
 router.get('/:id/students', authenticate, getClassStudents);
 
+// Xem trước dữ liệu sẽ bị xóa (Admin)
+router.get('/:id/delete-preview', authenticate, authorize('Quản trị'), getDeletePreview);
+
 // Tạo lớp mới (Admin)
 router.post('/', authenticate, authorize('Quản trị'), validateClass, createClass);
 
@@ -35,4 +39,5 @@ router.put('/:id', authenticate, authorize('Quản trị'), validateClass, updat
 router.delete('/:id', authenticate, authorize('Quản trị'), deleteClass);
 
 module.exports = router;
+
 

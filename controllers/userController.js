@@ -250,6 +250,81 @@ const getUsersByRole = async (req, res, next) => {
   }
 };
 
+/**
+ * Xem trước dữ liệu liên kết trước khi xóa user
+ * @route GET /api/users/:id/delete-preview
+ * @access Admin
+ */
+const getDeletePreview = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findById(id).select('-password -refreshTokens');
+    if (!user) {
+      return sendError(res, 404, 'User not found');
+    }
+
+    const Class = require('../models/Class');
+    const DisciplineGrading = require('../models/DisciplineGrading');
+    const ViolationLog = require('../models/ViolationLog');
+
+    // Check linked classes
+    const linkedClasses = await Class.find({
+      $or: [
+        { homeRoomTeacher: id },
+        { classLeader: id },
+        { viceClassLeader: id }
+      ]
+    }).select('name grade');
+
+    // Count discipline gradings created by this user
+    const disciplineCount = await DisciplineGrading.countDocuments({ createdBy: id });
+
+    // Count violations created/approved by this user
+    const violationsCreated = await ViolationLog.countDocuments({ createdBy: id });
+    const violationsApproved = await ViolationLog.countDocuments({ approvedBy: id });
+
+    const linkedClassesDetails = linkedClasses.map(c => ({
+      _id: c._id,
+      name: c.name,
+      grade: c.grade,
+      roles: [
+        c.homeRoomTeacher?.toString() === id ? 'Giáo viên chủ nhiệm' : null,
+        c.classLeader?.toString() === id ? 'Lớp trưởng' : null,
+        c.viceClassLeader?.toString() === id ? 'Lớp phó' : null,
+      ].filter(Boolean),
+    }));
+
+    const canDelete = linkedClasses.length === 0 && disciplineCount === 0;
+    const total = linkedClasses.length + disciplineCount + violationsCreated + violationsApproved;
+
+    return sendResponse(res, 200, true, 'Lấy thông tin xóa thành công', {
+      item: {
+        _id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        role: user.role,
+      },
+      canDelete,
+      linkedClasses: linkedClassesDetails,
+      willAffect: {
+        linkedClasses: linkedClasses.length,
+        disciplineGradings: disciplineCount,
+        violationsCreated,
+        violationsApproved,
+        total,
+      },
+      blockReason: !canDelete ? (
+        linkedClasses.length > 0 
+          ? `Đang liên kết với ${linkedClasses.length} lớp` 
+          : `Đã tạo ${disciplineCount} bảng chấm điểm`
+      ) : null,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllUsers,
   getUserById,
@@ -259,5 +334,7 @@ module.exports = {
   changePassword,
   createUser,
   getUsersByRole,
+  getDeletePreview,
 };
+
 

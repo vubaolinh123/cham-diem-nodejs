@@ -11,7 +11,7 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/chamdi
 
 // Admin user configuration
 const adminUserData = {
-  email: 'linh@gmail.com',
+  email: 'linh123@gmail.com',
   password: 'linkcualinh@123',
   fullName: 'Admin Linh',
   role: 'Quản trị', // Admin role in Vietnamese

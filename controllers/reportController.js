@@ -8,68 +8,217 @@ const Class = require('../models/Class');
 const { sendResponse, sendError } = require('../utils/helpers');
 
 /**
- * Lấy báo cáo ngày
+ * Lấy báo cáo tùy chỉnh (theo khoảng thời gian)
+ * @route GET /api/reports/custom
+ * @access Authenticated
+ */
+/**
+ * Lấy báo cáo tùy chỉnh (theo khoảng thời gian)
+ * @route GET /api/reports/custom
+ * @access Authenticated
+ */
+const getCustomReport = async (req, res, next) => {
+  try {
+    const { from, to, classIds, weekId, schoolYearId } = req.query;
+    const SchoolYear = require('../models/SchoolYear');
+    const WeeklySummary = require('../models/WeeklySummary');
+    const DisciplineGrading = require('../models/DisciplineGrading');
+    const ClassAcademicGrading = require('../models/ClassAcademicGrading');
+
+    let startDate, endDate;
+    let periodName = '';
+
+    // Determine date range priority: Date Range > Week > School Year
+    if (from && to) {
+      startDate = new Date(from);
+      endDate = new Date(to);
+      if (to.length <= 10) endDate.setHours(23, 59, 59, 999);
+      periodName = `Từ ${from} đến ${to}`;
+    } else if (weekId) {
+      const week = await Week.findById(weekId);
+      if (!week) return sendError(res, 404, 'Tuần không tìm thấy');
+      startDate = new Date(week.startDate);
+      endDate = new Date(week.endDate);
+      periodName = `Tuần ${week.weekNumber}`;
+    } else if (schoolYearId) {
+       const sh = await SchoolYear.findById(schoolYearId);
+       if (!sh) return sendError(res, 404, 'Năm học không tìm thấy');
+       startDate = new Date(sh.startDate);
+       endDate = new Date(sh.endDate);
+       periodName = `Năm học ${sh.year}`;
+    } else {
+        const now = new Date();
+        const currentWeek = await Week.findOne({
+            startDate: { $lte: now },
+            endDate: { $gte: now },
+        });
+        if (currentWeek) {
+            startDate = new Date(currentWeek.startDate);
+            endDate = new Date(currentWeek.endDate);
+            periodName = `Tuần ${currentWeek.weekNumber} (Hiện tại)`;
+        } else {
+            endDate = new Date();
+            startDate = new Date();
+            startDate.setDate(endDate.getDate() - 7);
+            periodName = '7 ngày qua';
+        }
+    }
+
+    // Find Weeks covered by this range
+    // We look for weeks that overlap with the range. 
+    // StartDate of week <= RangeEnd AND EndDate of week >= RangeStart
+    const weekQuery = {
+        startDate: { $lte: endDate },
+        endDate: { $gte: startDate }
+    };
+    if (schoolYearId) weekQuery.schoolYear = schoolYearId;
+
+    const weeks = await Week.find(weekQuery).select('_id weekNumber');
+    const weekIds = weeks.map(w => w._id);
+
+    // Initial Filter
+    const filter = {};
+    if (weekIds.length > 0) {
+        filter.week = { $in: weekIds };
+    } else {
+        // Fallback to strict date filtering if no weeks found (e.g. daily w/o week?)
+        // But we are aggregating DisciplineGrading which NEEDS week.
+        // If no week found, we effectively have no "Weekly Data".
+        // We could fallback to Daily Scores provided getDaily works? 
+        // Let's assume Week system is primary.
+        filter.date = { $gte: startDate, $lte: endDate }; // This works for ViolationLog but not Grading models which look by week
+    }
+
+    let classFilter = {};
+    if (classIds) {
+        const ids = Array.isArray(classIds) ? classIds : classIds.split(',');
+        if (ids.length > 0) {
+             classFilter.class = { $in: ids };
+             filter.class = { $in: ids };
+        }
+    }
+
+    // If we have weeks, we fetch Grading data. 
+    // If not, we skip Grading (empty) and just show Violations?
+    let disciplineGradings = [];
+    let academicGradings = [];
+
+    if (weekIds.length > 0) {
+        disciplineGradings = await DisciplineGrading.find({ week: { $in: weekIds }, ...classFilter })
+          .populate('class', 'name grade')
+          .lean();
+        
+        academicGradings = await ClassAcademicGrading.find({ week: { $in: weekIds }, ...classFilter })
+          .populate('class', 'name grade')
+          .lean();
+    }
+
+    const violations = await ViolationLog.find({ 
+        date: { $gte: startDate, $lte: endDate }, 
+        ...classFilter 
+    })
+       .populate('class', 'name grade')
+       .populate('violationType', 'name category severity')
+       .lean();
+
+    // Aggregation Map
+    const classMap = new Map();
+
+    const getClassEntry = (cls) => {
+        if (!cls) return null;
+        const id = cls._id.toString();
+        if (!classMap.has(id)) {
+            classMap.set(id, {
+                class: cls,
+                totalConductScore: 0,
+                totalAcademicScore: 0,
+                violationCount: 0,
+                weeksCount: 0, // Number of weeks this class has data for
+                academicWeeksCount: 0,
+            });
+        }
+        return classMap.get(id);
+    };
+
+    // Process Conduct (DisciplineGrading)
+    disciplineGradings.forEach(dg => {
+        const entry = getClassEntry(dg.class);
+        if (entry) {
+             entry.totalConductScore += dg.totalWeeklyScore || 0;
+             entry.weeksCount++; 
+        }
+    });
+
+    // Process Academic (ClassAcademicGrading)
+    academicGradings.forEach(ag => {
+        const entry = getClassEntry(ag.class);
+        if (entry) {
+            entry.totalAcademicScore += ag.finalWeeklyScore || 0;
+            entry.academicWeeksCount++;
+        }
+    });
+    
+    // Process Violations
+    violations.forEach(v => {
+        const entry = getClassEntry(v.class);
+        if (entry) {
+            entry.violationCount++;
+        }
+    });
+
+    // Finalize Averages
+    const summaries = Array.from(classMap.values()).map(entry => {
+        // Average Conduct
+        const avgConduct = entry.weeksCount > 0 ? (entry.totalConductScore / entry.weeksCount) : 0;
+        
+        // Average Academic
+        const avgAcademic = entry.academicWeeksCount > 0 ? (entry.totalAcademicScore / entry.academicWeeksCount) : 0;
+        
+        return {
+            class: entry.class,
+            conductScore: Math.round(avgConduct * 10) / 10,
+            academicScore: Math.round(avgAcademic * 10) / 10,
+            totalScore: Math.round((avgConduct + avgAcademic) * 10) / 10,
+            violationCount: entry.violationCount,
+            ranking: 0
+        };
+    });
+
+    // Sort
+    summaries.sort((a,b) => b.totalScore - a.totalScore);
+    summaries.forEach((s, i) => s.ranking = i + 1);
+
+    const report = {
+        period: periodName,
+        summaries,
+        violations: violations.length > 200 ? violations.slice(0, 200) : violations, // Limit violations if too many
+        summary: {
+            totalClasses: summaries.length,
+            totalViolations: violations.length,
+            topClass: summaries[0] || null,
+            bottomClass: summaries[summaries.length - 1] || null
+        }
+    };
+
+    return sendResponse(res, 200, true, 'Lấy báo cáo thành công', { report });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Lấy báo cáo ngày (Deprecated - use custom)
  * @route GET /api/reports/daily
  * @access Authenticated
  */
 const getDailyReport = async (req, res, next) => {
-  try {
-    const { date, class: classId } = req.query;
-
-    if (!date) {
-      return sendError(res, 400, 'Vui lòng cung cấp ngày');
+    // Forward to custom with from=date, to=date
+    if (req.query.date) {
+        req.query.from = req.query.date;
+        req.query.to = req.query.date;
     }
-
-    const reportDate = new Date(date);
-    reportDate.setHours(0, 0, 0, 0);
-
-    const nextDay = new Date(reportDate);
-    nextDay.setDate(nextDay.getDate() + 1);
-
-    const filter = {
-      date: { $gte: reportDate, $lt: nextDay },
-    };
-
-    if (classId) filter.class = classId;
-
-    // Lấy điểm nề nếp
-    const conductScores = await ConductScore.find(filter)
-      .populate('class', 'name grade')
-      .populate('scoredBy', 'fullName email');
-
-    // Lấy điểm học tập
-    const academicScores = await AcademicScore.find(filter)
-      .populate('class', 'name grade')
-      .populate('scoredBy', 'fullName email');
-
-    // Lấy vi phạm
-    const violations = await ViolationLog.find(filter)
-      .populate('class', 'name grade')
-      .populate('student', 'studentId fullName')
-      .populate('violationType', 'name category');
-
-    const report = {
-      date: reportDate,
-      conductScores,
-      academicScores,
-      violations,
-      summary: {
-        totalClasses: new Set([
-          ...conductScores.map((s) => s.class._id.toString()),
-          ...academicScores.map((s) => s.class._id.toString()),
-        ]).size,
-        totalViolations: violations.length,
-        approvedViolations: violations.filter((v) => v.status === 'Đã duyệt').length,
-        pendingViolations: violations.filter((v) => v.status === 'Chờ duyệt').length,
-      },
-    };
-
-    return sendResponse(res, 200, true, 'Lấy báo cáo ngày thành công', {
-      report,
-    });
-  } catch (error) {
-    next(error);
-  }
+    return getCustomReport(req, res, next);
 };
 
 /**
@@ -382,5 +531,6 @@ module.exports = {
   getMonthlyReport,
   exportReport,
   getViolationsSummary,
+  getCustomReport,
 };
 

@@ -8,11 +8,9 @@ const { sendResponse, sendError } = require('../utils/helpers');
  */
 const getAllViolationTypes = async (req, res, next) => {
   try {
-    const { category, severity, isActive = 'true', page = 1, limit = 20 } = req.query;
+    const { isActive = 'true', page = 1, limit = 20 } = req.query;
 
     const filter = {};
-    if (category) filter.category = category;
-    if (severity) filter.severity = severity;
     if (isActive !== undefined) filter.isActive = String(isActive) === 'true';
 
     const skip = (page - 1) * limit;
@@ -20,7 +18,7 @@ const getAllViolationTypes = async (req, res, next) => {
     const violationTypes = await ViolationType.find(filter)
       .skip(skip)
       .limit(parseInt(limit))
-      .sort({ category: 1, name: 1 });
+      .sort({ name: 1 });
 
     const total = await ViolationType.countDocuments(filter);
 
@@ -67,16 +65,18 @@ const getViolationTypeById = async (req, res, next) => {
  * @route POST /api/violation-types
  * @access Admin
  */
+/**
+ * Tạo loại vi phạm mới
+ * @route POST /api/violation-types
+ * @access Admin
+ */
 const createViolationType = async (req, res, next) => {
   try {
     const {
       name,
       description,
-      severity,
-      category,
       defaultPenalty,
-      color,
-      icon,
+      isActive
     } = req.body;
 
     // Kiểm tra loại vi phạm đã tồn tại
@@ -88,11 +88,8 @@ const createViolationType = async (req, res, next) => {
     const violationType = new ViolationType({
       name,
       description,
-      severity,
-      category,
       defaultPenalty,
-      color,
-      icon,
+      isActive,
       createdBy: req.userId,
     });
 
@@ -117,11 +114,7 @@ const updateViolationType = async (req, res, next) => {
     const {
       name,
       description,
-      severity,
-      category,
       defaultPenalty,
-      color,
-      icon,
       isActive,
     } = req.body;
 
@@ -140,18 +133,42 @@ const updateViolationType = async (req, res, next) => {
       violationType.name = name;
     }
 
-    if (description) violationType.description = description;
-    if (severity) violationType.severity = severity;
-    if (category) violationType.category = category;
+    if (description !== undefined) violationType.description = description;
     if (defaultPenalty !== undefined) violationType.defaultPenalty = defaultPenalty;
-    if (color) violationType.color = color;
-    if (icon) violationType.icon = icon;
     if (isActive !== undefined) violationType.isActive = isActive;
 
     await violationType.save();
 
     return sendResponse(res, 200, true, 'Cập nhật loại vi phạm thành công', {
       violationType,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Xem trước thông tin xóa loại vi phạm
+ * @route GET /api/violation-types/:id/delete-preview
+ * @access Admin
+ */
+const getDeletePreview = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const ViolationLog = require('../models/ViolationLog');
+
+    const violationType = await ViolationType.findById(id);
+    if (!violationType) {
+      return sendError(res, 404, 'Loại vi phạm không tìm thấy');
+    }
+
+    // Kiểm tra sử dụng trong ViolationLog
+    const usageCount = await ViolationLog.countDocuments({ violationType: id });
+
+    return sendResponse(res, 200, true, 'Lấy thông tin xem trước thành công', {
+      canDelete: usageCount === 0,
+      usageCount,
+      violationType
     });
   } catch (error) {
     next(error);
@@ -166,6 +183,13 @@ const updateViolationType = async (req, res, next) => {
 const deleteViolationType = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const ViolationLog = require('../models/ViolationLog');
+
+    // Kiểm tra sử dụng trước khi xóa
+    const usageCount = await ViolationLog.countDocuments({ violationType: id });
+    if (usageCount > 0) {
+      return sendError(res, 400, `Không thể xóa loại vi phạm này vì đang được sử dụng trong ${usageCount} bản ghi vi phạm.`);
+    }
 
     const violationType = await ViolationType.findByIdAndDelete(id);
 
@@ -185,5 +209,6 @@ module.exports = {
   createViolationType,
   updateViolationType,
   deleteViolationType,
+  getDeletePreview,
 };
 

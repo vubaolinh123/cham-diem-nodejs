@@ -16,16 +16,6 @@ const violationTypeSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // Mức độ vi phạm
-    severity: {
-      type: String,
-      enum: {
-        values: ['Nhẹ', 'Trung bình', 'Nặng'],
-        message: 'Mức độ phải là: Nhẹ, Trung bình, hoặc Nặng',
-      },
-      default: 'Trung bình',
-    },
-
     // Điểm trừ mặc định cho loại vi phạm này
     defaultPenalty: {
       type: Number,
@@ -33,37 +23,11 @@ const violationTypeSchema = new mongoose.Schema(
       min: 0,
     },
 
-    // Danh mục vi phạm (ví dụ: Nề nếp, Học tập, Kỷ luật)
-    category: {
-      type: String,
-      enum: {
-        values: ['Nề nếp', 'Học tập', 'Kỷ luật', 'Khác'],
-        message: 'Danh mục phải là: Nề nếp, Học tập, Kỷ luật, hoặc Khác',
-      },
-      default: 'Nề nếp',
-    },
-
     // Trạng thái (hoạt động/không hoạt động)
     isActive: {
       type: Boolean,
       default: true,
     },
-
-    // Thứ tự hiển thị
-    order: {
-      type: Number,
-      default: 0,
-    },
-
-    // Màu sắc để hiển thị trên UI (hex color)
-    color: {
-      type: String,
-      default: '#FF6B6B',
-      match: [/^#[0-9A-F]{6}$/i, 'Màu phải là mã hex hợp lệ'],
-    },
-
-    // Biểu tượng (icon name)
-    icon: String,
 
     // Người tạo
     createdBy: {
@@ -88,8 +52,6 @@ const violationTypeSchema = new mongoose.Schema(
 
 // Index cho tìm kiếm nhanh
 violationTypeSchema.index({ name: 1 });
-violationTypeSchema.index({ category: 1 });
-violationTypeSchema.index({ severity: 1 });
 violationTypeSchema.index({ isActive: 1 });
 
 module.exports = mongoose.model('ViolationType', violationTypeSchema);

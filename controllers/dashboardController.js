@@ -7,20 +7,55 @@ const Student = require('../models/Student');
 const { sendResponse, sendError } = require('../utils/helpers');
 
 // Helper to get current or specified week
-const getWeekFilter = async (weekParam) => {
-  if (weekParam === 'current') {
+// Helper to get current or specified week ID
+const getWeekId = async (weekParam) => {
+  if (!weekParam || weekParam === 'current') {
     const now = new Date();
     const currentWeek = await Week.findOne({
       startDate: { $lte: now },
       endDate: { $gte: now },
     });
     if (!currentWeek) {
-      const latestWeek = await Week.findOne().sort({ weekNumber: -1 });
-      return latestWeek?._id || null;
+      // Fallback: Find latest week that has started
+      const latestStartedWeek = await Week.findOne({ startDate: { $lte: now } }).sort({ startDate: -1 });
+      return latestStartedWeek?._id || null;
     }
     return currentWeek._id;
   }
-  return weekParam || null;
+  return weekParam;
+};
+
+// Helper to build filter object from query params
+const buildDashboardFilter = async (query) => {
+  const { week, classId, status, fromDate, toDate } = query;
+  const filter = {};
+
+  // Class filter
+  if (classId) {
+    filter.class = classId;
+  }
+
+  // Status filter
+  if (status) {
+    filter.status = status;
+  }
+
+  // Time filter (Priority: Week > Date Range > Current Week)
+  if (week) {
+    const weekId = await getWeekId(week);
+    if (weekId) filter.week = weekId;
+  } else if (fromDate && toDate) {
+    // Filter by date range (using weekStartDate/weekEndDate in DisciplineGrading)
+    // We look for items where weekStartDate >= fromDate AND weekEndDate <= toDate
+    filter.weekStartDate = { $gte: new Date(fromDate) };
+    filter.weekEndDate = { $lte: new Date(toDate) };
+  } else {
+    // Default to current week
+    const weekId = await getWeekId('current');
+    if (weekId) filter.week = weekId;
+  }
+
+  return filter;
 };
 
 /**
@@ -30,21 +65,50 @@ const getWeekFilter = async (weekParam) => {
  */
 const getStatistics = async (req, res, next) => {
   try {
-    const { week } = req.query;
+    const filter = await buildDashboardFilter(req.query);
     
-    const weekId = await getWeekFilter(week || 'current');
-    
-    // Count total classes, students
+    // Count total classes, students (Global or Filtered?)
+    // If filtering by class, totals should reflect that? 
+    // Usually 'Total Classes' in dashboard implies "All Classes in School".
+    // But if filtering, maybe "1 Class"?
+    // The previous implementation used explicit Class.countDocuments() and Student.countDocuments().
+    // We'll keep global counts for "Total" cards unless user asks otherwise, 
+    // BUT the "Average Score", "Violations" etc MUST respect the filter.
     const totalClasses = await Class.countDocuments();
     const totalStudents = await Student.countDocuments();
 
-    // Get discipline gradings for this week
-    const disciplineGradings = weekId 
-      ? await DisciplineGrading.find({ week: weekId }).lean()
-      : await DisciplineGrading.find().lean();
+    // Get discipline gradings
+    const disciplineGradings = await DisciplineGrading.find(filter).lean();
 
     // Get violations
-    const violationFilter = weekId ? { week: weekId } : {};
+    // ViolationLog works differently. It has `date`. It doesn't have `weekStartDate` stored directly usually.
+    // It has `week` reference.
+    // If filter has `week`, usage is fine.
+    // If filter has `weekStartDate`, ViolationLog DOES NOT have it.
+    // We need separate logic for ViolationLog if date range is used.
+    
+    let violationFilter = {};
+    if (filter.class) violationFilter.class = filter.class;
+    // Status in ViolationLog? ViolationLog has status 'Chờ duyệt' etc.
+    // status param usually refers to WeeklyReport status.
+    // If filtering by WeeklyReport Status (e.g. Locked), we should probably NOT filter ViolationLogs by that status,
+    // UNLESS we map valid weeks.
+    // Simplest: Filter separate logic for violations.
+    
+    // Re-construct filter for ViolationLog
+    const { week, classId, fromDate, toDate } = req.query;
+    if (classId) violationFilter.class = classId;
+    
+    if (week) {
+      const weekId = await getWeekId(week);
+      if (weekId) violationFilter.week = weekId;
+    } else if (fromDate && toDate) {
+       violationFilter.date = { $gte: new Date(fromDate), $lte: new Date(toDate) };
+    } else {
+       const weekId = await getWeekId('current');
+       if (weekId) violationFilter.week = weekId;
+    }
+
     const violations = await ViolationLog.find(violationFilter).lean();
 
     // Calculate averages and flag distribution
@@ -91,10 +155,9 @@ const getStatistics = async (req, res, next) => {
  */
 const getTopClasses = async (req, res, next) => {
   try {
-    const { week, limit = 10 } = req.query;
-    const weekId = await getWeekFilter(week || 'current');
+    const { limit = 10 } = req.query;
+    const filter = await buildDashboardFilter(req.query);
 
-    const filter = weekId ? { week: weekId } : {};
     const disciplineGradings = await DisciplineGrading.find(filter)
       .populate('class', 'name grade')
       .sort({ totalWeeklyScore: -1 })
@@ -122,10 +185,9 @@ const getTopClasses = async (req, res, next) => {
  */
 const getBottomClasses = async (req, res, next) => {
   try {
-    const { week, limit = 10 } = req.query;
-    const weekId = await getWeekFilter(week || 'current');
+    const { limit = 10 } = req.query;
+    const filter = await buildDashboardFilter(req.query);
 
-    const filter = weekId ? { week: weekId } : {};
     const disciplineGradings = await DisciplineGrading.find(filter)
       .populate('class', 'name grade')
       .sort({ totalWeeklyScore: 1 })
@@ -153,10 +215,21 @@ const getBottomClasses = async (req, res, next) => {
  */
 const getViolationsPareto = async (req, res, next) => {
   try {
-    const { week } = req.query;
-    const weekId = await getWeekFilter(week || 'current');
-
-    const filter = weekId ? { week: weekId } : {};
+    // Replicate violation filter logic
+    const { week, classId, fromDate, toDate } = req.query;
+    let filter = {};
+    if (classId) filter.class = classId;
+    
+    if (week) {
+      const weekId = await getWeekId(week);
+      if (weekId) filter.week = weekId;
+    } else if (fromDate && toDate) {
+       filter.date = { $gte: new Date(fromDate), $lte: new Date(toDate) };
+    } else {
+       const weekId = await getWeekId('current');
+       if (weekId) filter.week = weekId;
+    }
+    
     const violations = await ViolationLog.find(filter)
       .populate('violationType', 'name category')
       .lean();
@@ -192,17 +265,23 @@ const getViolationsPareto = async (req, res, next) => {
  */
 const getDashboardOverview = async (req, res, next) => {
   try {
-    const { week } = req.query;
-    const weekId = await getWeekFilter(week || 'current');
-
-    const filter = weekId ? { week: weekId } : {};
+    const filter = await buildDashboardFilter(req.query);
     
     const disciplineGradings = await DisciplineGrading.find(filter)
       .populate('class', 'name grade')
       .lean();
-    const violations = await ViolationLog.find(filter).lean();
+    
+    // Violation filter
+    const { week, classId, fromDate, toDate } = req.query;
+    let violationFilter = {};
+    if (classId) violationFilter.class = classId;
+    if (week) { const w = await getWeekId(week); if(w) violationFilter.week = w; }
+    else if (fromDate && toDate) violationFilter.date = { $gte: new Date(fromDate), $lte: new Date(toDate) };
+    else { const w = await getWeekId('current'); if(w) violationFilter.week = w; }
 
-    const totalClasses = disciplineGradings.length;
+    const violations = await ViolationLog.find(violationFilter).lean();
+
+    const totalClasses = disciplineGradings.length; // Active classes with grades
     let totalScore = 0;
     const flagDistribution = { redFlag: 0, greenFlag: 0, yellowFlag: 0, noFlag: 0 };
 
@@ -221,7 +300,7 @@ const getDashboardOverview = async (req, res, next) => {
     const bottomClass = sortedByScore[sortedByScore.length - 1] || null;
 
     const overview = {
-      period: { type: 'week', value: weekId },
+      period: { type: 'custom', value: 'filtered' },
       totalClasses,
       averageScore,
       totalViolations: violations.length,
@@ -238,6 +317,11 @@ const getDashboardOverview = async (req, res, next) => {
         score: bottomClass.totalWeeklyScore || 0,
         flag: bottomClass.flag,
       } : null,
+      bottomClass2: sortedByScore.length > 1 ? {
+          class: sortedByScore[sortedByScore.length - 2].class,
+          score: sortedByScore[sortedByScore.length - 2].totalWeeklyScore || 0,
+          flag: sortedByScore[sortedByScore.length - 2].flag
+      } : null
     };
 
     return sendResponse(res, 200, true, 'Lấy tổng quan dashboard thành công', { overview });
@@ -253,10 +337,7 @@ const getDashboardOverview = async (req, res, next) => {
  */
 const getClassStatistics = async (req, res, next) => {
   try {
-    const { week } = req.query;
-    const weekId = await getWeekFilter(week || 'current');
-
-    const filter = weekId ? { week: weekId } : {};
+    const filter = await buildDashboardFilter(req.query);
     
     const disciplineGradings = await DisciplineGrading.find(filter)
       .populate('class', 'name grade studentCount')
@@ -266,17 +347,26 @@ const getClassStatistics = async (req, res, next) => {
       .populate('class', 'name')
       .lean();
 
-    const violations = await ViolationLog.find(filter)
+    // Violation Filter
+    const { week, classId, fromDate, toDate } = req.query;
+    let violationFilter = {};
+    if (classId) violationFilter.class = classId;
+    if (week) { const w = await getWeekId(week); if(w) violationFilter.week = w; }
+    else if (fromDate && toDate) violationFilter.date = { $gte: new Date(fromDate), $lte: new Date(toDate) };
+    else { const w = await getWeekId('current'); if(w) violationFilter.week = w; }
+
+    const violations = await ViolationLog.find(violationFilter)
       .populate('class', 'name')
       .lean();
 
     // Build class map
     const classMap = new Map();
     
+    // Process Discipline first
     disciplineGradings.forEach(dg => {
       if (dg.class) {
-        const classId = dg.class._id.toString();
-        classMap.set(classId, {
+        const classIdStr = dg.class._id.toString();
+        classMap.set(classIdStr, {
           className: dg.class.name,
           totalStudents: dg.class.studentCount || 0,
           conductScore: dg.totalWeeklyScore || 0,
@@ -287,20 +377,24 @@ const getClassStatistics = async (req, res, next) => {
       }
     });
 
+    // Academic
     academicGradings.forEach(ag => {
       if (ag.class) {
-        const classId = ag.class._id.toString();
-        if (classMap.has(classId)) {
-          classMap.get(classId).academicScore = ag.finalWeeklyScore || 0;
+        const classIdStr = ag.class._id.toString();
+        // Only if class already in map (meaning it has discipline grading)
+        // Or should we include classes that only have academic? Usually consistency requires existence.
+        if (classMap.has(classIdStr)) {
+          classMap.get(classIdStr).academicScore = ag.finalWeeklyScore || 0;
         }
       }
     });
 
+    // Violations
     violations.forEach(v => {
       if (v.class) {
-        const classId = v.class._id.toString();
-        if (classMap.has(classId)) {
-          classMap.get(classId).totalViolations++;
+        const classIdStr = v.class._id.toString();
+        if (classMap.has(classIdStr)) {
+          classMap.get(classIdStr).totalViolations++;
         }
       }
     });
@@ -320,10 +414,7 @@ const getClassStatistics = async (req, res, next) => {
  */
 const getGradeDistribution = async (req, res, next) => {
   try {
-    const { week } = req.query;
-    const weekId = await getWeekFilter(week || 'current');
-
-    const filter = weekId ? { week: weekId } : {};
+    const filter = await buildDashboardFilter(req.query);
     const disciplineGradings = await DisciplineGrading.find(filter).lean();
 
     // Distribution by flag
@@ -360,7 +451,32 @@ const getGradeDistribution = async (req, res, next) => {
  */
 const getViolationTrend = async (req, res, next) => {
   try {
-    const violations = await ViolationLog.find({}).sort({ date: 1 }).lean();
+     // For trend, we usually show last 14 days.
+     // If user applies filters, we should probably respect date range?
+     // If user selects "Week 10", trend in Week 10?
+     // Yes.
+     const { week, classId, fromDate, toDate } = req.query;
+     let filter = {};
+     if (classId) filter.class = classId;
+     
+     if (week) { 
+        const w = await getWeekId(week); 
+        if(w) filter.week = w; 
+     } else if (fromDate && toDate) {
+        filter.date = { $gte: new Date(fromDate), $lte: new Date(toDate) };
+     } else {
+        // Default to last 14 days if no period specified?
+        // Or current week?
+        // Existing logic used "Period" param but implementation just queried ALL.
+        // Let's default to last 30 days if no filter? 
+        // Or if 'current' week is implied via default filters?
+        // Safety: If no date filter, restrict to last 30 days to avoid loading everything.
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        filter.date = { $gte: thirtyDaysAgo };
+     }
+
+    const violations = await ViolationLog.find(filter).sort({ date: 1 }).lean();
 
     const trendMap = {};
     violations.forEach(v => {
@@ -373,7 +489,7 @@ const getViolationTrend = async (req, res, next) => {
 
     const violationTrend = Object.keys(trendMap)
       .sort()
-      .slice(-14) // Last 14 days
+      // .slice(-14) // Don't slice if user filtered
       .map(date => ({ date, count: trendMap[date] }));
 
     return sendResponse(res, 200, true, 'Lấy xu hướng vi phạm thành công', { violationTrend });

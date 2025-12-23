@@ -6,6 +6,7 @@ const {
   getMonthlyReport,
   exportReport,
   getViolationsSummary,
+  getCustomReport,
 } = require('../controllers/reportController');
 const { authenticate } = require('../middlewares/auth');
 
@@ -16,6 +17,9 @@ const { authenticate } = require('../middlewares/auth');
 
 // Lấy báo cáo ngày (Authenticated)
 router.get('/daily', authenticate, getDailyReport);
+
+// Lấy báo cáo tùy chỉnh (Authenticated)
+router.get('/custom', authenticate, getCustomReport);
 
 // Lấy báo cáo tuần (Authenticated)
 router.get('/weekly', authenticate, getWeeklyReport);

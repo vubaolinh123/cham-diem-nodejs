@@ -2,6 +2,7 @@ const ClassAcademicGrading = require('../models/ClassAcademicGrading');
 const Class = require('../models/Class');
 const Week = require('../models/Week');
 const SchoolYear = require('../models/SchoolYear');
+const { updateWeeklySummary } = require('../utils/weeklySummaryHelper');
 
 // Helper function để populate
 const populateOptions = [
@@ -190,6 +191,9 @@ exports.update = async (req, res) => {
 
     // Save will trigger pre-save hook to recalculate scores
     await academicGrading.save();
+
+    // Auto-update WeeklySummary
+    await updateWeeklySummary(academicGrading.week, academicGrading.class, req.user?._id);
 
     // Populate and return
     await academicGrading.populate(populateOptions);

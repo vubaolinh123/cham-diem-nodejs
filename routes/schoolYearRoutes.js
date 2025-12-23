@@ -8,6 +8,7 @@ const {
   updateSchoolYear,
   deleteSchoolYear,
   generateWeeks,
+  getDeletePreview,
 } = require('../controllers/schoolYearController');
 const { authenticate, authorize } = require('../middlewares/auth');
 const { validateSchoolYear } = require('../middlewares/validation');
@@ -26,6 +27,9 @@ router.get('/', authenticate, authorize('Quản trị'), getAllSchoolYears);
 // Lấy năm học theo ID (Admin)
 router.get('/:id', authenticate, authorize('Quản trị'), getSchoolYearById);
 
+// Xem trước dữ liệu sẽ bị xóa (Admin)
+router.get('/:id/delete-preview', authenticate, authorize('Quản trị'), getDeletePreview);
+
 // Tạo năm học mới (Admin)
 router.post('/', authenticate, authorize('Quản trị'), validateSchoolYear, createSchoolYear);
 
@@ -39,5 +43,6 @@ router.put('/:id', authenticate, authorize('Quản trị'), validateSchoolYear, 
 router.delete('/:id', authenticate, authorize('Quản trị'), deleteSchoolYear);
 
 module.exports = router;
+
 
 

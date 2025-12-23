@@ -210,7 +210,52 @@ const updateStudent = async (req, res, next) => {
 };
 
 /**
- * Xóa học sinh
+ * Xem trước dữ liệu sẽ bị xóa khi xóa học sinh
+ * @route GET /api/students/:id/delete-preview
+ * @access Admin
+ */
+const getDeletePreview = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const student = await Student.findById(id).populate('class', 'name grade');
+    if (!student) {
+      return sendError(res, 404, 'Học sinh không tìm thấy');
+    }
+
+    // Import related models
+    const ViolationLog = require('../models/ViolationLog');
+    const DisciplineGrading = require('../models/DisciplineGrading');
+
+    // Count related data
+    const [violationsCount, disciplineGradingsWithStudent] = await Promise.all([
+      ViolationLog.countDocuments({ student: id }),
+      // Count how many discipline grading records have this student in violatingStudentIds
+      DisciplineGrading.countDocuments({ 'items.dayScores.violatingStudentIds': id }),
+    ]);
+
+    const total = violationsCount + disciplineGradingsWithStudent;
+
+    return sendResponse(res, 200, true, 'Lấy thông tin xóa thành công', {
+      item: {
+        _id: student._id,
+        studentId: student.studentId,
+        fullName: student.fullName,
+        className: student.class?.name,
+      },
+      willDelete: {
+        violations: violationsCount,
+        disciplineRecords: disciplineGradingsWithStudent,
+        total,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Xóa học sinh và dữ liệu liên quan
  * @route DELETE /api/students/:id
  * @access Admin
  */
@@ -218,14 +263,27 @@ const deleteStudent = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const student = await Student.findById(id);
-
+    const student = await Student.findById(id).populate('class', 'name grade');
     if (!student) {
       return sendError(res, 404, 'Học sinh không tìm thấy');
     }
 
-    const classId = student.class;
+    const classId = student.class?._id || student.class;
 
+    // Import related models
+    const ViolationLog = require('../models/ViolationLog');
+    const DisciplineGrading = require('../models/DisciplineGrading');
+
+    // Delete violations
+    const violationsResult = await ViolationLog.deleteMany({ student: id });
+
+    // Remove student from discipline grading violatingStudentIds
+    const disciplineResult = await DisciplineGrading.updateMany(
+      { 'items.dayScores.violatingStudentIds': id },
+      { $pull: { 'items.$[].dayScores.$[].violatingStudentIds': id } }
+    );
+
+    // Delete the student
     await Student.findByIdAndDelete(id);
 
     // Update studentCount in Class
@@ -233,31 +291,319 @@ const deleteStudent = async (req, res, next) => {
       await Class.findByIdAndUpdate(classId, { $inc: { studentCount: -1 } });
     }
 
-    return sendResponse(res, 200, true, 'Xóa học sinh thành công');
+    const deleted = {
+      student: {
+        _id: student._id,
+        studentId: student.studentId,
+        fullName: student.fullName,
+        className: student.class?.name,
+      },
+      violations: violationsResult.deletedCount,
+      disciplineRecordsUpdated: disciplineResult.modifiedCount,
+      total: violationsResult.deletedCount + disciplineResult.modifiedCount,
+    };
+
+    return sendResponse(res, 200, true, 'Xóa học sinh và dữ liệu liên quan thành công', { deleted });
   } catch (error) {
     next(error);
   }
 };
 
 /**
- * Import học sinh từ Excel
- * @route POST /api/students/import
+ * Xem trước dữ liệu sẽ bị xóa khi xóa nhiều học sinh
+ * @route POST /api/students/bulk-delete-preview
  * @access Admin
- * @description Nhập danh sách học sinh từ file Excel
  */
-const importStudents = async (req, res, next) => {
+const getBulkDeletePreview = async (req, res, next) => {
   try {
-    if (!req.file) {
-      return sendError(res, 400, 'Vui lòng chọn file Excel');
+    const { studentIds } = req.body;
+
+    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+      return sendError(res, 400, 'Danh sách học sinh không hợp lệ');
     }
 
-    // TODO: Implement Excel parsing logic
-    // Sử dụng thư viện xlsx để đọc file
-    // Validate dữ liệu
-    // Bulk insert vào database
+    // Get students info
+    const students = await Student.find({ _id: { $in: studentIds } })
+      .populate('class', 'name grade');
 
-    return sendResponse(res, 200, true, 'Import học sinh thành công', {
-      message: 'Chức năng import sẽ được triển khai',
+    // Import related models
+    const ViolationLog = require('../models/ViolationLog');
+    const DisciplineGrading = require('../models/DisciplineGrading');
+
+    // Count related data
+    const [violationsCount, disciplineGradingsCount] = await Promise.all([
+      ViolationLog.countDocuments({ student: { $in: studentIds } }),
+      DisciplineGrading.countDocuments({ 'items.dayScores.violatingStudentIds': { $in: studentIds } }),
+    ]);
+
+    const total = violationsCount + disciplineGradingsCount;
+
+    return sendResponse(res, 200, true, 'Lấy thông tin xóa thành công', {
+      students: students.map(s => ({
+        _id: s._id,
+        studentId: s.studentId,
+        fullName: s.fullName,
+        className: s.class?.name,
+      })),
+      willDelete: {
+        students: students.length,
+        violations: violationsCount,
+        disciplineRecords: disciplineGradingsCount,
+        total: students.length + total,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Xóa nhiều học sinh cùng lúc
+ * @route DELETE /api/students/bulk
+ * @access Admin
+ */
+const bulkDeleteStudents = async (req, res, next) => {
+  try {
+    const { studentIds } = req.body;
+
+    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+      return sendError(res, 400, 'Danh sách học sinh không hợp lệ');
+    }
+
+    // Get students to find their classes
+    const students = await Student.find({ _id: { $in: studentIds } })
+      .populate('class', 'name grade');
+
+    // Group by class for updating studentCount
+    const classCounts = {};
+    students.forEach(s => {
+      const classId = s.class?._id?.toString() || s.class?.toString();
+      if (classId) {
+        classCounts[classId] = (classCounts[classId] || 0) + 1;
+      }
+    });
+
+    // Import related models
+    const ViolationLog = require('../models/ViolationLog');
+    const DisciplineGrading = require('../models/DisciplineGrading');
+
+    // Delete violations
+    const violationsResult = await ViolationLog.deleteMany({ student: { $in: studentIds } });
+
+    // Remove students from discipline grading violatingStudentIds
+    const disciplineResult = await DisciplineGrading.updateMany(
+      { 'items.dayScores.violatingStudentIds': { $in: studentIds } },
+      { $pullAll: { 'items.$[].dayScores.$[].violatingStudentIds': studentIds } }
+    );
+
+    // Delete the students
+    const studentsResult = await Student.deleteMany({ _id: { $in: studentIds } });
+
+    // Update studentCount in each affected class
+    for (const [classId, count] of Object.entries(classCounts)) {
+      await Class.findByIdAndUpdate(classId, { $inc: { studentCount: -count } });
+    }
+
+    const deleted = {
+      students: studentsResult.deletedCount,
+      violations: violationsResult.deletedCount,
+      disciplineRecordsUpdated: disciplineResult.modifiedCount,
+      classesUpdated: Object.keys(classCounts).length,
+      total: studentsResult.deletedCount + violationsResult.deletedCount + disciplineResult.modifiedCount,
+    };
+
+    return sendResponse(res, 200, true, 'Xóa học sinh và dữ liệu liên quan thành công', { deleted });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Import nhiều học sinh cùng lúc (Bulk Import)
+ * @route POST /api/students/bulk
+ * @access Admin
+ * @description Thêm nhiều học sinh cùng lúc, trả về danh sách lỗi chi tiết cho từng học sinh nếu có
+ */
+const bulkCreateStudents = async (req, res, next) => {
+  try {
+    const { students } = req.body;
+
+    if (!students || !Array.isArray(students) || students.length === 0) {
+      return sendError(res, 400, 'Vui lòng cung cấp danh sách học sinh');
+    }
+
+    const results = {
+      success: [],
+      errors: [],
+    };
+
+    // Helper function to translate field names
+    const translateFieldName = (field) => {
+      const fieldMap = {
+        'studentId': 'mã học sinh',
+        'fullName': 'họ và tên',
+        'dateOfBirth': 'ngày sinh',
+        'gender': 'giới tính',
+        'class': 'lớp',
+        'schoolYear': 'năm học',
+        'email': 'email',
+        'phone': 'số điện thoại',
+        'address': 'địa chỉ',
+        'parentName': 'tên phụ huynh',
+        'parentPhone': 'số điện thoại phụ huynh',
+        'status': 'trạng thái',
+      };
+      return fieldMap[field] || field;
+    };
+
+    // Helper function to translate error message
+    const translateError = (err, studentIdentifier) => {
+      if (err.name === 'ValidationError') {
+        const messages = Object.entries(err.errors).map(([field, e]) => {
+          if (e.name === 'CastError') {
+            const fieldName = translateFieldName(e.path);
+            if (e.kind === 'date' || e.kind === 'Date') {
+              return `${fieldName}: Định dạng không hợp lệ. Giá trị "${e.value}" không phải là ngày hợp lệ (định dạng đúng: YYYY-MM-DD)`;
+            }
+            if (e.kind === 'ObjectId') {
+              return `${fieldName}: Không hợp lệ hoặc không tồn tại`;
+            }
+            return `${fieldName}: Giá trị không hợp lệ`;
+          }
+          return e.message;
+        });
+        return messages;
+      }
+      if (err.code === 11000) {
+        const field = Object.keys(err.keyPattern)[0];
+        return [`${translateFieldName(field)}: Đã tồn tại trong hệ thống`];
+      }
+      return [err.message || 'Lỗi không xác định'];
+    };
+
+    // Process each student individually
+    for (let i = 0; i < students.length; i++) {
+      const studentData = students[i];
+      const studentIdentifier = studentData.studentId || studentData.fullName || `Học sinh thứ ${i + 1}`;
+
+      try {
+        // Validate required fields manually first
+        const manualErrors = [];
+        if (!studentData.studentId || !studentData.studentId.trim()) {
+          manualErrors.push('Mã học sinh là bắt buộc');
+        }
+        if (!studentData.fullName || !studentData.fullName.trim()) {
+          manualErrors.push('Họ và tên là bắt buộc');
+        }
+        if (!studentData.class) {
+          manualErrors.push('Lớp là bắt buộc');
+        }
+        if (!studentData.schoolYear) {
+          manualErrors.push('Năm học là bắt buộc');
+        }
+
+        if (manualErrors.length > 0) {
+          results.errors.push({
+            studentId: studentData.studentId || '',
+            fullName: studentData.fullName || '',
+            index: i + 1,
+            errors: manualErrors,
+          });
+          continue;
+        }
+
+        // Check if studentId already exists
+        const existingStudent = await Student.findOne({ studentId: studentData.studentId });
+        if (existingStudent) {
+          results.errors.push({
+            studentId: studentData.studentId,
+            fullName: studentData.fullName,
+            index: i + 1,
+            errors: ['Mã học sinh đã tồn tại trong hệ thống'],
+          });
+          continue;
+        }
+
+        // Check if class exists
+        const classData = await Class.findById(studentData.class);
+        if (!classData) {
+          results.errors.push({
+            studentId: studentData.studentId,
+            fullName: studentData.fullName,
+            index: i + 1,
+            errors: ['Lớp không tồn tại trong hệ thống'],
+          });
+          continue;
+        }
+
+        // Create student
+        const student = new Student({
+          studentId: studentData.studentId,
+          fullName: studentData.fullName,
+          gender: studentData.gender,
+          dateOfBirth: studentData.dateOfBirth,
+          class: studentData.class,
+          schoolYear: studentData.schoolYear,
+          address: studentData.address,
+          phone: studentData.phone,
+          email: studentData.email,
+          parentName: studentData.parentName,
+          parentPhone: studentData.parentPhone,
+          notes: studentData.notes,
+          createdBy: req.userId,
+        });
+
+        await student.save();
+
+        // Update studentCount in Class
+        await Class.findByIdAndUpdate(studentData.class, { $inc: { studentCount: 1 } });
+
+        results.success.push({
+          studentId: studentData.studentId,
+          fullName: studentData.fullName,
+          _id: student._id,
+        });
+
+      } catch (err) {
+        const errorMessages = translateError(err, studentIdentifier);
+        results.errors.push({
+          studentId: studentData.studentId || '',
+          fullName: studentData.fullName || '',
+          index: i + 1,
+          errors: errorMessages,
+        });
+      }
+    }
+
+    // Determine response status and message
+    const totalStudents = students.length;
+    const successCount = results.success.length;
+    const errorCount = results.errors.length;
+
+    let message;
+    let statusCode;
+
+    if (errorCount === 0) {
+      message = `Thêm thành công ${successCount} học sinh`;
+      statusCode = 201;
+    } else if (successCount === 0) {
+      message = `Thêm học sinh thất bại. ${errorCount} học sinh có lỗi`;
+      statusCode = 400;
+    } else {
+      message = `Thêm thành công ${successCount}/${totalStudents} học sinh. ${errorCount} học sinh có lỗi`;
+      statusCode = 207; // Multi-Status
+    }
+
+    return res.status(statusCode).json({
+      success: errorCount === 0,
+      message,
+      data: {
+        total: totalStudents,
+        successCount,
+        errorCount,
+        successStudents: results.success,
+        errorStudents: results.errors,
+      },
     });
   } catch (error) {
     next(error);
@@ -270,6 +616,10 @@ module.exports = {
   createStudent,
   updateStudent,
   deleteStudent,
-  importStudents,
+  bulkCreateStudents,
+  getDeletePreview,
+  getBulkDeletePreview,
+  bulkDeleteStudents,
 };
+
 

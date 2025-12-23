@@ -34,49 +34,6 @@ router.post(
 );
 
 /**
- * @route   GET /api/users/role/:role
- * @desc    Get users by role (admin only)
- * @access  Private - Admin
- */
-router.get(
-  '/role/:role',
-  authenticate,
-  authorize('Quản trị'),
-  userController.getUsersByRole
-);
-
-/**
- * @route   GET /api/users/:id
- * @desc    Get user by ID
- * @access  Private
- */
-router.get('/:id', authenticate, userController.getUserById);
-
-/**
- * @route   PUT /api/users/:id
- * @desc    Update user (admin only)
- * @access  Private - Admin
- */
-router.put(
-  '/:id',
-  authenticate,
-  authorize('Quản trị'),
-  userController.updateUser
-);
-
-/**
- * @route   DELETE /api/users/:id
- * @desc    Delete user (admin only)
- * @access  Private - Admin
- */
-router.delete(
-  '/:id',
-  authenticate,
-  authorize('Quản trị'),
-  userController.deleteUser
-);
-
-/**
  * @route   PUT /api/users/profile/update
  * @desc    Update own profile
  * @access  Private
@@ -102,5 +59,59 @@ router.post(
   userController.changePassword
 );
 
-module.exports = router;
+/**
+ * @route   GET /api/users/role/:role
+ * @desc    Get users by role (admin only)
+ * @access  Private - Admin
+ */
+router.get(
+  '/role/:role',
+  authenticate,
+  authorize('Quản trị'),
+  userController.getUsersByRole
+);
 
+/**
+ * @route   GET /api/users/:id
+ * @desc    Get user by ID
+ * @access  Private
+ */
+router.get('/:id', authenticate, userController.getUserById);
+
+/**
+ * @route   GET /api/users/:id/delete-preview
+ * @desc    Preview linked data before deleting user
+ * @access  Private - Admin
+ */
+router.get(
+  '/:id/delete-preview',
+  authenticate,
+  authorize('Quản trị'),
+  userController.getDeletePreview
+);
+
+/**
+ * @route   PUT /api/users/:id
+ * @desc    Update user (admin only)
+ * @access  Private - Admin
+ */
+router.put(
+  '/:id',
+  authenticate,
+  authorize('Quản trị'),
+  userController.updateUser
+);
+
+/**
+ * @route   DELETE /api/users/:id
+ * @desc    Delete user (admin only)
+ * @access  Private - Admin
+ */
+router.delete(
+  '/:id',
+  authenticate,
+  authorize('Quản trị'),
+  userController.deleteUser
+);
+
+module.exports = router;

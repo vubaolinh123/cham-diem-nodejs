@@ -451,18 +451,23 @@ const createWeeklySummary = async (req, res, next) => {
       topViolators: [],
     };
 
-    // 7. Tính tổng điểm và xếp cờ
-    const totalScore = conductScoresData.total + academicScoresData.total;
+    // 7. Tính tổng điểm và xếp cờ dựa trên cấu hình năm học
+    const conductTotal = conductScoresData.total;
+    const maxPossible = disciplineGrading?.maxPossibleScore || 100;
+    const percentage = maxPossible > 0 ? Math.round((conductTotal / maxPossible) * 100) : 0;
     
-    // Lấy flag từ DisciplineGrading nếu có, ngược lại tính toán
+    // Lấy thresholds từ school year config
+    const schoolYear = await SchoolYear.findById(weekData.schoolYear);
+    const thresholds = schoolYear?.classificationThresholds || {};
+    const { redFlag = 90, greenFlag = 70, yellowFlag = 50 } = thresholds;
+    
+    // Tính flag từ percentage
     let flag = 'Không xếp cờ';
-    if (disciplineGrading && disciplineGrading.flag) {
-      flag = disciplineGrading.flag;
-    } else if (totalScore >= 90) {
+    if (percentage >= redFlag) {
       flag = 'Cờ đỏ';
-    } else if (totalScore >= 70) {
+    } else if (percentage >= greenFlag) {
       flag = 'Cờ xanh';
-    } else if (totalScore >= 50) {
+    } else if (percentage >= yellowFlag) {
       flag = 'Cờ vàng';
     }
 
@@ -472,7 +477,7 @@ const createWeeklySummary = async (req, res, next) => {
       finalStatus = 'Khóa';
     }
 
-    const classification = { flag, totalScore };
+    const classification = { flag, totalScore: conductTotal, percentage };
 
     const summary = new WeeklySummary({
       week,

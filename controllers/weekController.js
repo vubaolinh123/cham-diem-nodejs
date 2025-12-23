@@ -424,6 +424,102 @@ const bulkDeleteWeeks = async (req, res, next) => {
   }
 };
 
+/**
+ * Xem trước dữ liệu sẽ bị xóa khi xóa tuần
+ * @route GET /api/weeks/:id/delete-preview
+ * @access Admin
+ */
+const getDeletePreview = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const week = await Week.findById(id).populate('schoolYear', 'year');
+    if (!week) {
+      return sendError(res, 404, 'Tuần không tìm thấy');
+    }
+
+    const WeeklySummary = require('../models/WeeklySummary');
+    const DisciplineGrading = require('../models/DisciplineGrading');
+    const ClassAcademicGrading = require('../models/ClassAcademicGrading');
+
+    const [summaryCount, disciplineCount, academicCount, violationCount] = await Promise.all([
+      WeeklySummary.countDocuments({ week: id }),
+      DisciplineGrading.countDocuments({ week: id }),
+      ClassAcademicGrading.countDocuments({ week: id }),
+      ViolationLog.countDocuments({ week: id }),
+    ]);
+
+    const total = summaryCount + disciplineCount + academicCount + violationCount;
+
+    return sendResponse(res, 200, true, 'Lấy thông tin xóa thành công', {
+      item: {
+        _id: week._id,
+        weekNumber: week.weekNumber,
+        schoolYear: week.schoolYear?.year,
+        startDate: week.startDate,
+        endDate: week.endDate,
+      },
+      willDelete: {
+        weeklySummaries: summaryCount,
+        disciplineGradings: disciplineCount,
+        academicGradings: academicCount,
+        violations: violationCount,
+        total,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Xem trước dữ liệu sẽ bị xóa khi xóa nhiều tuần
+ * @route POST /api/weeks/bulk-delete-preview
+ * @access Admin
+ */
+const getBulkDeletePreview = async (req, res, next) => {
+  try {
+    const { weekIds } = req.body;
+
+    if (!weekIds || !Array.isArray(weekIds) || weekIds.length === 0) {
+      return sendError(res, 400, 'Danh sách tuần không hợp lệ');
+    }
+
+    const weeks = await Week.find({ _id: { $in: weekIds } }).populate('schoolYear', 'year');
+
+    const WeeklySummary = require('../models/WeeklySummary');
+    const DisciplineGrading = require('../models/DisciplineGrading');
+    const ClassAcademicGrading = require('../models/ClassAcademicGrading');
+
+    const [summaryCount, disciplineCount, academicCount, violationCount] = await Promise.all([
+      WeeklySummary.countDocuments({ week: { $in: weekIds } }),
+      DisciplineGrading.countDocuments({ week: { $in: weekIds } }),
+      ClassAcademicGrading.countDocuments({ week: { $in: weekIds } }),
+      ViolationLog.countDocuments({ week: { $in: weekIds } }),
+    ]);
+
+    const total = summaryCount + disciplineCount + academicCount + violationCount;
+
+    return sendResponse(res, 200, true, 'Lấy thông tin xóa thành công', {
+      weeks: weeks.map(w => ({
+        _id: w._id,
+        weekNumber: w.weekNumber,
+        schoolYear: w.schoolYear?.year,
+      })),
+      willDelete: {
+        weeks: weeks.length,
+        weeklySummaries: summaryCount,
+        disciplineGradings: disciplineCount,
+        academicGradings: academicCount,
+        violations: violationCount,
+        total: weeks.length + total,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllWeeks,
   getWeekById,
@@ -434,7 +530,10 @@ module.exports = {
   getWeekStatus,
   deleteWeek,
   bulkDeleteWeeks,
+  getDeletePreview,
+  getBulkDeletePreview,
 };
+
 
 
 
