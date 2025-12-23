@@ -9,14 +9,21 @@ const getAllUsers = async (req, res, next) => {
     if (role) filter.role = role;
     if (isActive !== undefined) filter.isActive = isActive === 'true';
 
-    const skip = (page - 1) * limit;
+    const limitNumber = parseInt(limit);
+    let users;
+    let total;
 
-    const users = await User.find(filter)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .select('-password -refreshTokens');
-
-    const total = await User.countDocuments(filter);
+    if (limit === '0') {
+        users = await User.find(filter).select('-password -refreshTokens');
+        total = users.length;
+    } else {
+        const skip = (page - 1) * limitNumber;
+        users = await User.find(filter)
+          .skip(skip)
+          .limit(limitNumber)
+          .select('-password -refreshTokens');
+        total = await User.countDocuments(filter);
+    }
 
     return sendResponse(res, 200, true, 'Users retrieved successfully', {
       users,

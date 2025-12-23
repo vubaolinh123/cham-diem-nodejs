@@ -16,18 +16,30 @@ const getAllClasses = async (req, res, next) => {
     if (grade) filter.grade = parseInt(grade);
     if (status) filter.status = status;
 
-    const skip = (page - 1) * limit;
+    const limitNumber = parseInt(limit);
+    let classes;
+    let total;
 
-    const classes = await Class.find(filter)
-      .populate('schoolYear', 'year')
-      .populate('homeRoomTeacher', 'fullName email')
-      .populate('classLeader', 'fullName email')
-      .populate('viceClassLeader', 'fullName email')
-      .skip(skip)
-      .limit(parseInt(limit))
-      .sort({ grade: 1, name: 1 });
-
-    const total = await Class.countDocuments(filter);
+    if (limit === '0') {
+      classes = await Class.find(filter)
+        .populate('schoolYear', 'year')
+        .populate('homeRoomTeacher', 'fullName email')
+        .populate('classLeader', 'fullName email')
+        .populate('viceClassLeader', 'fullName email')
+        .sort({ grade: 1, name: 1 });
+      total = classes.length;
+    } else {
+      const skip = (page - 1) * limitNumber;
+      classes = await Class.find(filter)
+        .populate('schoolYear', 'year')
+        .populate('homeRoomTeacher', 'fullName email')
+        .populate('classLeader', 'fullName email')
+        .populate('viceClassLeader', 'fullName email')
+        .skip(skip)
+        .limit(limitNumber)
+        .sort({ grade: 1, name: 1 });
+      total = await Class.countDocuments(filter);
+    }
 
     return sendResponse(res, 200, true, 'Lấy danh sách lớp thành công', {
       classes,

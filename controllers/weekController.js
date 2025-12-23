@@ -24,25 +24,37 @@ const getAllWeeks = async (req, res, next) => {
       if (endDate) filter.startDate.$lte = new Date(endDate);
     }
 
-    const skip = (page - 1) * limit;
+    const limitNumber = parseInt(limit);
+    let weeks;
+    let total;
 
-    const weeks = await Week.find(filter)
-      .populate('schoolYear', 'year')
-      .populate('approvedBy', 'fullName email')
-      .populate('lockedBy', 'fullName email')
-      .skip(skip)
-      .limit(parseInt(limit))
-      .sort({ weekNumber: -1 });
+    if (limit === '0') {
+      weeks = await Week.find(filter)
+        .populate('schoolYear', 'year')
+        .populate('approvedBy', 'fullName email')
+        .populate('lockedBy', 'fullName email')
+        .sort({ weekNumber: -1 });
+      total = weeks.length;
+    } else {
+      const skip = (page - 1) * limitNumber;
+      weeks = await Week.find(filter)
+        .populate('schoolYear', 'year')
+        .populate('approvedBy', 'fullName email')
+        .populate('lockedBy', 'fullName email')
+        .skip(skip)
+        .limit(limitNumber)
+        .sort({ weekNumber: -1 });
+      total = await Week.countDocuments(filter);
+    }
 
-    const total = await Week.countDocuments(filter);
 
     return sendResponse(res, 200, true, 'Lấy danh sách tuần thành công', {
       weeks,
       pagination: {
         total,
         page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / limit),
+        limit: limit === '0' ? total : parseInt(limit),
+        pages: limit === '0' ? 1 : Math.ceil(total / limit),
       },
     });
   } catch (error) {

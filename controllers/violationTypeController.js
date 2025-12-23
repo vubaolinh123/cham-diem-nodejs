@@ -13,22 +13,30 @@ const getAllViolationTypes = async (req, res, next) => {
     const filter = {};
     if (isActive !== undefined) filter.isActive = String(isActive) === 'true';
 
-    const skip = (page - 1) * limit;
+    const limitNumber = parseInt(limit);
+    let violationTypes;
+    let total;
 
-    const violationTypes = await ViolationType.find(filter)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .sort({ name: 1 });
+    if (limit === '0') {
+      violationTypes = await ViolationType.find(filter).sort({ name: 1 });
+      total = violationTypes.length;
+    } else {
+      const skip = (page - 1) * limitNumber;
+      violationTypes = await ViolationType.find(filter)
+        .skip(skip)
+        .limit(limitNumber)
+        .sort({ name: 1 });
+      total = await ViolationType.countDocuments(filter);
+    }
 
-    const total = await ViolationType.countDocuments(filter);
 
     return sendResponse(res, 200, true, 'Lấy danh sách loại vi phạm thành công', {
       violationTypes,
       pagination: {
         total,
         page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / limit),
+        limit: limit === '0' ? total : parseInt(limit),
+        pages: limit === '0' ? 1 : Math.ceil(total / limit),
       },
     });
   } catch (error) {
