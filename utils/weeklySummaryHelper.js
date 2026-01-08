@@ -194,14 +194,14 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
       .slice(0, 5); // Top 5 violators
 
     // Calculate total score and classification
-    // Total = conduct percentage (weighted) + bonuses - violation penalties
-    const conductWeight = 1.0; // Full weight for conduct
-    const totalScore = Math.max(0, conductScores.total + bonuses.total - violationPenaltyTotal); // Ensure not negative?? Or allow? Usually allows logic to go down. But let's cap at 0 for now or follow user rule? User didn't specify min 0. Let's keep it Math.max(0, ...) safe logic for now unless requested otherwise.
+    // FIXED: Total = Conduct Score (0-100) + Academic Score (0-100) = 0-200 range
+    // Bonuses and penalties are tracked separately but NOT added to totalScore per user requirement
+    const conductScoreValue = conductScores.percentage || 0; // 0-100 scale
+    const academicScoreValue = academicScores.total || 0;    // 0-100 scale
+    const totalScore = conductScoreValue + academicScoreValue; // 0-200 scale
     
-    // Recalculate percentage based on maxPossible
-    const percentage = conductScores.maxPossible > 0 
-      ? Math.round((totalScore / conductScores.maxPossible) * 100)
-      : 0;
+    // Calculate percentage on a 0-200 scale (divide by 2 to get 0-100)
+    const percentage = Math.round(totalScore / 2);
 
     // Get classification thresholds from school year
     const thresholds = schoolYear.classificationThresholds || {};

@@ -7,6 +7,7 @@ const {
   updateWeek,
   approveWeek,
   lockWeek,
+  unlockWeek,
   getWeekStatus,
   deleteWeek,
   bulkDeleteWeeks,
@@ -50,6 +51,9 @@ router.put('/:id/approve', authenticate, authorize('Giáo viên chủ nhiệm', 
 
 // Khóa tuần (Class Leader, Admin)
 router.put('/:id/lock', authenticate, authorize('Quản trị'), lockWeek);
+
+// Mở khóa tuần (Admin only)
+router.put('/:id/unlock', authenticate, authorize('Quản trị'), unlockWeek);
 
 // Xóa tuần (Admin)
 router.delete('/:id', authenticate, authorize('Quản trị'), deleteWeek);

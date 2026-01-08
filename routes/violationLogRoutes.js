@@ -7,6 +7,7 @@ const {
   updateViolationLog,
   approveViolation,
   rejectViolation,
+  reopenViolation,
   deleteViolationLog,
 } = require('../controllers/violationLogController');
 const { authenticate, authorize } = require('../middlewares/auth');
@@ -55,6 +56,14 @@ router.put(
   authenticate,
   authorize('Giáo viên chủ nghiệm', 'Quản trị'),
   rejectViolation
+);
+
+// Mở lại duyệt vi phạm (Admin only)
+router.put(
+  '/:id/reopen',
+  authenticate,
+  authorize('Quản trị'),
+  reopenViolation
 );
 
 // Xóa vi phạm (Admin)

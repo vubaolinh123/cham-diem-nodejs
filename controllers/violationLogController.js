@@ -323,11 +323,11 @@ const rejectViolation = async (req, res, next) => {
 };
 
 /**
- * Xóa vi phạm
- * @route DELETE /api/violation-logs/:id
+ * Mở lại duyệt vi phạm (Admin only)
+ * @route PUT /api/violation-logs/:id/reopen
  * @access Admin
  */
-const deleteViolationLog = async (req, res, next) => {
+const reopenViolation = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -337,8 +337,58 @@ const deleteViolationLog = async (req, res, next) => {
       return sendError(res, 404, 'Vi phạm không tìm thấy');
     }
 
-    if (violation.status === 'Đã duyệt') {
-      return sendError(res, 409, 'Không thể xóa vi phạm đã duyệt');
+    if (violation.status === 'Chờ duyệt') {
+      return sendError(res, 409, 'Vi phạm đang ở trạng thái chờ duyệt');
+    }
+
+    violation.status = 'Chờ duyệt';
+    violation.approvedBy = null;
+    violation.approvedDate = null;
+    violation.notes = req.body.reason || 'Mở lại bởi Admin';
+    violation.updatedBy = req.userId;
+
+    await violation.save();
+
+    // Auto-update WeeklySummary after status change
+    await updateWeeklySummary(violation.week, violation.class, req.userId);
+
+    await violation.populate([
+      { path: 'week', select: 'weekNumber startDate endDate' },
+      { path: 'student', select: 'studentId fullName' },
+      { path: 'class', select: 'name grade' },
+      { path: 'violationType', select: 'name category severity' },
+      { path: 'reportedBy', select: 'fullName email role' },
+    ]);
+
+    return sendResponse(res, 200, true, 'Mở lại duyệt vi phạm thành công', {
+      violation,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Xóa vi phạm
+ * @route DELETE /api/violation-logs/:id
+ * @access Admin (can delete even approved violations)
+ */
+const deleteViolationLog = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { force } = req.query; // Force delete even if approved
+
+    const violation = await ViolationLog.findById(id);
+
+    if (!violation) {
+      return sendError(res, 404, 'Vi phạm không tìm thấy');
+    }
+
+    // Only restrict if not force AND not admin. 
+    // Since route is Admin only, we allow force delete for approved violations.
+    // If force=true, allow deletion regardless of status
+    if (violation.status === 'Đã duyệt' && force !== 'true') {
+      return sendError(res, 409, 'Vi phạm đã duyệt. Sử dụng force=true để xóa.');
     }
 
     // Store week and class before deletion
@@ -384,6 +434,7 @@ module.exports = {
   updateViolationLog,
   approveViolation,
   rejectViolation,
+  reopenViolation,
   deleteViolationLog,
 };
 

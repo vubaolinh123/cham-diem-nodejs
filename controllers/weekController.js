@@ -271,6 +271,51 @@ const lockWeek = async (req, res, next) => {
 };
 
 /**
+ * Mở khóa tuần (Admin only)
+ * @route PUT /api/weeks/:id/unlock
+ * @access Admin
+ */
+const unlockWeek = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const week = await Week.findById(id);
+
+    if (!week) {
+      return sendError(res, 404, 'Tuần không tìm thấy');
+    }
+
+    if (week.status !== 'Khóa') {
+      return sendError(res, 409, 'Tuần phải ở trạng thái "Khóa" mới có thể mở khóa');
+    }
+
+    week.status = 'Duyệt';
+    week.lockedBy = null;
+    week.lockedDate = null;
+    week.updatedBy = req.userId;
+
+    await week.save();
+    await week.populate([
+      { path: 'schoolYear', select: 'year' },
+    ]);
+
+    // Recalculate all WeeklySummaries for this week
+    const { updateWeeklySummary } = require('../utils/weeklySummaryHelper');
+    const WeeklySummary = require('../models/WeeklySummary');
+    const summaries = await WeeklySummary.find({ week: id });
+    for (const summary of summaries) {
+      await updateWeeklySummary(id, summary.class.toString(), req.userId);
+    }
+
+    return sendResponse(res, 200, true, 'Mở khóa tuần thành công. Đã tính lại dữ liệu.', {
+      week,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Lấy trạng thái hoàn thành của tuần
  * @route GET /api/weeks/:id/status
  * @access Authenticated
@@ -539,6 +584,7 @@ module.exports = {
   updateWeek,
   approveWeek,
   lockWeek,
+  unlockWeek,
   getWeekStatus,
   deleteWeek,
   bulkDeleteWeeks,
