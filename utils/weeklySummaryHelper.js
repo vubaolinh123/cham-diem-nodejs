@@ -171,10 +171,17 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
           violationType: v.violationType?._id,
           typeName,
           count: 0,
+          approvedCount: 0,
           severity,
+          penaltyPerViolation: defaultPenalty,
+          totalPenalty: 0,
         };
       }
       violationsByType[typeId].count++;
+      if (v.status === 'Đã duyệt') {
+        violationsByType[typeId].approvedCount++;
+        violationsByType[typeId].totalPenalty += defaultPenalty;
+      }
 
       // Count by student
       const studentId = v.student?.toString();
@@ -194,11 +201,16 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
       .slice(0, 5); // Top 5 violators
 
     // Calculate total score and classification
-    // FIXED: Total = Conduct Score (0-100) + Academic Score (0-100) = 0-200 range
-    // Bonuses and penalties are tracked separately but NOT added to totalScore per user requirement
-    const conductScoreValue = conductScores.percentage || 0; // 0-100 scale
-    const academicScoreValue = academicScores.total || 0;    // 0-100 scale
-    const totalScore = conductScoreValue + academicScoreValue; // 0-200 scale
+    // Formula: Total = Conduct Score + Academic Score - Violation Penalty
+    // Conduct Score: use .total (0-100 scale based on maxPossible)
+    // Academic Score: use .total (0-100 scale)
+    // Violation Penalty: sum of defaultPenalty for approved violations
+    const conductScoreValue = conductScores.total || 0; // 0-100 scale
+    const academicScoreValue = academicScores.total || 0; // 0-100 scale
+    const penaltyDeduction = violationPenaltyTotal || 0;
+    
+    // Total = Conduct + Academic - Penalty (0-200 base, can go lower with penalties)
+    const totalScore = Math.max(0, conductScoreValue + academicScoreValue - penaltyDeduction);
     
     // Calculate percentage on a 0-200 scale (divide by 2 to get 0-100)
     const percentage = Math.round(totalScore / 2);
@@ -210,6 +222,7 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     const classification = {
       flag,
       totalScore,
+      penaltyDeduction, // Track penalty separately for debugging
       percentage,
       ranking: null, // Will be calculated separately when comparing classes
     };
