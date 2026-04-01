@@ -26,6 +26,12 @@ router.put('/:id', disciplineGradingController.update);
 // PATCH /api/discipline-grading/:id/status - Cập nhật trạng thái
 router.patch('/:id/status', disciplineGradingController.updateStatus);
 
+// POST /api/discipline-grading/:id/sync-violations - Sync violations from conduct grading
+router.post('/:id/sync-violations', disciplineGradingController.syncViolations);
+
+// DELETE /api/discipline-grading/:id/sync-violations - Remove synced violations
+router.delete('/:id/sync-violations', disciplineGradingController.removeSyncedViolations);
+
 // DELETE /api/discipline-grading/:id - Xóa
 router.delete('/:id', disciplineGradingController.delete);
 

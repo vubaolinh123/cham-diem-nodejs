@@ -90,7 +90,9 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     };
 
     if (conductScores.maxPossible > 0) {
-      conductScores.average = Math.round(conductScores.total / 4); // Average per day (4 days/week)
+      // Calculate average based on actual number of days with scores
+      const dayCount = disciplineGrading?.items?.[0]?.applicableDays?.length || 5;
+      conductScores.average = Math.round(conductScores.total / dayCount);
     }
 
     // Calculate academic scores
@@ -216,8 +218,10 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     const percentage = Math.round(totalScore / 2);
 
     // Get classification thresholds from school year
-    const thresholds = schoolYear.classificationThresholds || {};
-    const flag = calculateFlag(percentage, thresholds);
+    // Flag is now manually assigned by admin, no auto-calculation
+    // Keep existing flag if summary exists, otherwise set null
+    const existingFlag = (await WeeklySummary.findOne({ week: weekId, class: classId }))?.classification?.flag || null;
+    const flag = existingFlag;
 
     const classification = {
       flag,
@@ -269,26 +273,10 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
  * Used when school year thresholds change
  */
 const recalculateFlag = async (summaryId) => {
-  try {
-    const summary = await WeeklySummary.findById(summaryId).populate({
-      path: 'week',
-      populate: { path: 'schoolYear' }
-    });
-    
-    if (!summary) return null;
-    
-    const thresholds = summary.week?.schoolYear?.classificationThresholds || {};
-    const percentage = summary.classification?.percentage || 0;
-    const flag = calculateFlag(percentage, thresholds);
-    
-    summary.classification.flag = flag;
-    await summary.save();
-    
-    return summary;
-  } catch (error) {
-    console.error('recalculateFlag error:', error);
-    return null;
-  }
+  // Flag is now manually assigned by admin, no auto-recalculation
+  // This function is kept for backward compatibility but does nothing
+  console.log('recalculateFlag: Skipped - flag is now manually assigned');
+  return null;
 };
 
 module.exports = {

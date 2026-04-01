@@ -133,6 +133,13 @@ const violationLogSchema = new mongoose.Schema(
 
     // Ghi chú
     notes: String,
+
+    // Nguồn tạo vi phạm
+    source: {
+      type: String,
+      enum: ['manual', 'conduct_grading'],
+      default: 'manual',
+    },
   },
   {
     timestamps: true,

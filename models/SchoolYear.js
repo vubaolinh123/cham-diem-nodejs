@@ -131,12 +131,12 @@ const schoolYearSchema = new mongoose.Schema(
             type: String,
             required: true,
           },
-          // Các ngày áp dụng (2=Thứ 2, 3=Thứ 3, 4=Thứ 4, 5=Thứ 5)
+          // Các ngày áp dụng (2=Thứ 2, 3=Thứ 3, 4=Thứ 4, 5=Thứ 5, 6=Thứ 6)
           applicableDays: [
             {
               type: Number,
               min: 2,
-              max: 5,
+              max: 6,
             },
           ],
           // Thứ tự hiển thị

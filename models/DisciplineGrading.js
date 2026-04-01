@@ -68,7 +68,7 @@ const disciplineGradingSchema = new mongoose.Schema(
           {
             type: Number,
             min: 2,
-            max: 5,
+            max: 6,
           },
         ],
 
@@ -79,7 +79,7 @@ const disciplineGradingSchema = new mongoose.Schema(
             day: {
               type: Number,
               min: 2,
-              max: 5,
+              max: 6,
               required: true,
             },
 
@@ -187,16 +187,7 @@ disciplineGradingSchema.pre('save', function (next) {
     this.percentage = Math.round((this.totalWeeklyScore / this.maxPossibleScore) * 100);
   }
 
-  // Xếp cờ dựa trên phần trăm
-  if (this.percentage >= 90) {
-    this.flag = 'Cờ đỏ';
-  } else if (this.percentage >= 70) {
-    this.flag = 'Cờ xanh';
-  } else if (this.percentage >= 50) {
-    this.flag = 'Cờ vàng';
-  } else {
-    this.flag = 'Không xếp cờ';
-  }
+  // Flag is now manually assigned by admin, no auto-calculation
 
   next();
 });

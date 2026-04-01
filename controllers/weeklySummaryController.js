@@ -125,7 +125,12 @@ const generateWeeklySummary = async (req, res, next) => {
     const bonusData = calculateBonuses(conductData, academicData, schoolYear.bonusConfiguration);
 
     const totalScore = conductData.total + academicData.total + bonusData.total;
-    const classification = classifyScore(totalScore, schoolYear.classificationThresholds);
+    // Flag is now manually assigned by admin
+    const classification = {
+      flag: null,
+      totalScore,
+      ranking: 0,
+    };
 
     // Kiểm tra tổng hợp đã tồn tại
     let summary = await WeeklySummary.findOne({ week, class: classId });
@@ -451,25 +456,10 @@ const createWeeklySummary = async (req, res, next) => {
       topViolators: [],
     };
 
-    // 7. Tính tổng điểm và xếp cờ dựa trên cấu hình năm học
+    // 7. Tính tổng điểm - Cờ do admin chọn thủ công
     const conductTotal = conductScoresData.total;
     const maxPossible = disciplineGrading?.maxPossibleScore || 100;
     const percentage = maxPossible > 0 ? Math.round((conductTotal / maxPossible) * 100) : 0;
-    
-    // Lấy thresholds từ school year config
-    const schoolYear = await SchoolYear.findById(weekData.schoolYear);
-    const thresholds = schoolYear?.classificationThresholds || {};
-    const { redFlag = 90, greenFlag = 70, yellowFlag = 50 } = thresholds;
-    
-    // Tính flag từ percentage
-    let flag = 'Không xếp cờ';
-    if (percentage >= redFlag) {
-      flag = 'Cờ đỏ';
-    } else if (percentage >= greenFlag) {
-      flag = 'Cờ xanh';
-    } else if (percentage >= yellowFlag) {
-      flag = 'Cờ vàng';
-    }
 
     // Lấy status từ DisciplineGrading nếu có và đã khóa
     let finalStatus = status || 'Nháp';
@@ -477,7 +467,8 @@ const createWeeklySummary = async (req, res, next) => {
       finalStatus = 'Khóa';
     }
 
-    const classification = { flag, totalScore: conductTotal, percentage };
+    // Flag is now manually assigned by admin, not auto-calculated
+    const classification = { flag: null, totalScore: conductTotal, percentage };
 
     const summary = new WeeklySummary({
       week,
@@ -531,7 +522,12 @@ const updateWeeklySummary = async (req, res, next) => {
     if (academicScores) summary.academicScores = academicScores;
     if (bonuses) summary.bonuses = bonuses;
     if (violations) summary.violations = violations;
-    if (classification) summary.classification = classification;
+    if (classification) {
+      // Allow manual flag assignment
+      if (classification.flag !== undefined) summary.classification.flag = classification.flag;
+      if (classification.totalScore !== undefined) summary.classification.totalScore = classification.totalScore;
+      if (classification.ranking !== undefined) summary.classification.ranking = classification.ranking;
+    }
     if (status) summary.status = status;
     if (notes !== undefined) summary.notes = notes;
 

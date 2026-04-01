@@ -410,25 +410,25 @@ exports.startGrading = async (req, res) => {
     } else {
       rawConductItems = [
         { name: 'Sinh hoạt dưới cờ', applicableDays: [2] },
-        { name: 'Truy bài', applicableDays: [3, 4, 5] },
-        { name: 'Đeo thẻ', applicableDays: [2, 3, 4, 5] },
-        { name: 'Vệ sinh lớp + khu vực', applicableDays: [2, 3, 4, 5] },
-        { name: 'Đi học đúng giờ', applicableDays: [2, 3, 4, 5] },
-        { name: 'Nếp sống văn minh', applicableDays: [2, 3, 4, 5] },
+        { name: 'Truy bài', applicableDays: [3, 4, 5, 6] },
+        { name: 'Đeo thẻ', applicableDays: [2, 3, 4, 5, 6] },
+        { name: 'Vệ sinh lớp + khu vực', applicableDays: [2, 3, 4, 5, 6] },
+        { name: 'Đi học đúng giờ', applicableDays: [2, 3, 4, 5, 6] },
+        { name: 'Nếp sống văn minh', applicableDays: [2, 3, 4, 5, 6] },
       ];
     }
     
-    // Filter out day 6 (Thứ 6) from applicableDays - school week is Mon-Thu only
+    // Support Monday through Friday (day 2-6)
     const conductItems = rawConductItems.map(item => ({
       ...item,
-      applicableDays: (item.applicableDays || [2, 3, 4, 5]).filter(day => day >= 2 && day <= 5)
+      applicableDays: (item.applicableDays || [2, 3, 4, 5, 6]).filter(day => day >= 2 && day <= 6)
     }));
     
     const maxPointsPerItem = schoolYear.conductConfiguration?.maxPointsPerItem || 5;
 
     // Build items with default scores (full marks)
     const items = conductItems.map((item, index) => {
-      const validDays = item.applicableDays.length > 0 ? item.applicableDays : [2, 3, 4, 5];
+      const validDays = item.applicableDays.length > 0 ? item.applicableDays : [2, 3, 4, 5, 6];
       const dayScores = validDays.map(day => ({
         day,
         violations: 0,
@@ -481,6 +481,157 @@ exports.startGrading = async (req, res) => {
       message: 'Lỗi server',
       error: error.message,
     });
+  }
+};
+
+// @desc    Sync student violations from conduct grading to ViolationLog
+// @route   POST /api/discipline-grading/:id/sync-violations
+// @access  Private
+exports.syncViolations = async (req, res) => {
+  try {
+    const ViolationLog = require('../models/ViolationLog');
+    const ViolationType = require('../models/ViolationType');
+    
+    const disciplineGrading = await DisciplineGrading.findById(req.params.id);
+    if (!disciplineGrading) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy dữ liệu' });
+    }
+
+    const { itemId, day, studentIds, violationTypeName, description } = req.body;
+    
+    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'Danh sách học sinh là bắt buộc' });
+    }
+
+    // Find or use violation type
+    let violationTypeDoc = await ViolationType.findOne({ name: violationTypeName });
+    if (!violationTypeDoc) {
+      // Use first active violation type as fallback
+      violationTypeDoc = await ViolationType.findOne({ isActive: true });
+    }
+    if (!violationTypeDoc) {
+      return res.status(400).json({ success: false, message: 'Không tìm thấy loại vi phạm' });
+    }
+
+    // Calculate the date for this day of week within the grading week
+    const weekStart = new Date(disciplineGrading.weekStartDate);
+    const dayOffset = day - 2; // day 2 (Monday) = offset 0
+    const violationDate = new Date(weekStart);
+    violationDate.setDate(violationDate.getDate() + dayOffset);
+
+    const createdViolations = [];
+    const skippedDuplicates = [];
+
+    for (const studentId of studentIds) {
+      // Check for existing violation (same student + same type + same date) to avoid duplicates
+      const startOfDay = new Date(violationDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(violationDate);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const existing = await ViolationLog.findOne({
+        student: studentId,
+        class: disciplineGrading.class,
+        week: disciplineGrading.week,
+        violationType: violationTypeDoc._id,
+        date: { $gte: startOfDay, $lte: endOfDay },
+      });
+
+      if (existing) {
+        skippedDuplicates.push(studentId);
+        continue;
+      }
+
+      const violation = new ViolationLog({
+        student: studentId,
+        class: disciplineGrading.class,
+        week: disciplineGrading.week,
+        violationType: violationTypeDoc._id,
+        date: violationDate,
+        description: description || `Vi phạm ${violationTypeName} - ${itemId ? 'Mục ' + itemId : ''}`,
+        reportedBy: req.userId || req.user?._id,
+        status: 'Chờ duyệt',
+        severity: violationTypeDoc.severity || 'Nhẹ',
+        category: 'Nề nếp',
+        source: 'conduct_grading',
+      });
+
+      await violation.save();
+      createdViolations.push(violation);
+    }
+
+    // Auto-update WeeklySummary
+    await updateWeeklySummary(disciplineGrading.week, disciplineGrading.class, req.userId || req.user?._id);
+
+    res.status(201).json({
+      success: true,
+      message: `Đã tạo ${createdViolations.length} vi phạm, bỏ qua ${skippedDuplicates.length} trùng lặp`,
+      data: {
+        created: createdViolations.length,
+        skipped: skippedDuplicates.length,
+        violations: createdViolations,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Lỗi server', error: error.message });
+  }
+};
+
+// @desc    Remove student violations synced from conduct grading
+// @route   DELETE /api/discipline-grading/:id/sync-violations
+// @access  Private
+exports.removeSyncedViolations = async (req, res) => {
+  try {
+    const ViolationLog = require('../models/ViolationLog');
+    
+    const disciplineGrading = await DisciplineGrading.findById(req.params.id);
+    if (!disciplineGrading) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy dữ liệu' });
+    }
+
+    const { studentIds, day, violationTypeName } = req.body;
+    
+    if (!studentIds || !Array.isArray(studentIds)) {
+      return res.status(400).json({ success: false, message: 'Danh sách học sinh là bắt buộc' });
+    }
+
+    // Calculate the date for this day of week
+    const weekStart = new Date(disciplineGrading.weekStartDate);
+    const dayOffset = day - 2;
+    const violationDate = new Date(weekStart);
+    violationDate.setDate(violationDate.getDate() + dayOffset);
+    
+    const startOfDay = new Date(violationDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(violationDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Find violation type if specified
+    const ViolationType = require('../models/ViolationType');
+    let filter = {
+      student: { $in: studentIds },
+      class: disciplineGrading.class,
+      week: disciplineGrading.week,
+      date: { $gte: startOfDay, $lte: endOfDay },
+    };
+
+    if (violationTypeName) {
+      const vType = await ViolationType.findOne({ name: violationTypeName });
+      if (vType) filter.violationType = vType._id;
+    }
+
+    const result = await ViolationLog.deleteMany(filter);
+
+    // Auto-update WeeklySummary
+    await updateWeeklySummary(disciplineGrading.week, disciplineGrading.class, req.userId || req.user?._id);
+
+    res.status(200).json({
+      success: true,
+      message: `Đã xóa ${result.deletedCount} vi phạm`,
+      data: { deleted: result.deletedCount },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Lỗi server', error: error.message });
   }
 };
 
