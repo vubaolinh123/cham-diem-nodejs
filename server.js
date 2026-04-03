@@ -30,6 +30,7 @@ const reportRoutes = require('./routes/reportRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const disciplineGradingRoutes = require('./routes/disciplineGradingRoutes');
 const classAcademicGradingRoutes = require('./routes/classAcademicGradingRoutes');
+const uploadRoutes = require('./routes/uploadRoutes');
 
 // Initialize Express app
 const app = express();
@@ -90,6 +91,11 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/discipline-grading', disciplineGradingRoutes);
 app.use('/api/class-academic-grading', classAcademicGradingRoutes);
+app.use('/api/uploads', uploadRoutes);
+
+// Serve uploaded files statically
+const path = require('path');
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Root endpoint
 app.get('/', (req, res) => {

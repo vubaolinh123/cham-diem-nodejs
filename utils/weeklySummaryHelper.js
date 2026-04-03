@@ -212,7 +212,7 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     const penaltyDeduction = violationPenaltyTotal || 0;
     
     // Total = Conduct + Academic - Penalty (0-200 base, can go lower with penalties)
-    const totalScore = Math.max(0, conductScoreValue + academicScoreValue - penaltyDeduction);
+    const totalScore = conductScoreValue + academicScoreValue - penaltyDeduction;
     
     // Calculate percentage on a 0-200 scale (divide by 2 to get 0-100)
     const percentage = Math.round(totalScore / 2);
@@ -235,7 +235,12 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     let summary = await WeeklySummary.findOne({ week: weekId, class: classId });
 
     if (summary) {
-      // Update existing
+      // Do not overwrite approved/locked snapshots
+      if (summary.status === 'Duyệt' || summary.status === 'Khóa') {
+        console.log(`updateWeeklySummary: Skipped - summary is ${summary.status} (snapshot preserved)`);
+        return summary;
+      }
+      // Update existing draft
       summary.conductScores = conductScores;
       summary.academicScores = academicScores;
       summary.bonuses = bonuses;

@@ -528,7 +528,14 @@ const updateWeeklySummary = async (req, res, next) => {
       if (classification.totalScore !== undefined) summary.classification.totalScore = classification.totalScore;
       if (classification.ranking !== undefined) summary.classification.ranking = classification.ranking;
     }
-    if (status) summary.status = status;
+    if (status) {
+      // Record approval metadata when transitioning to Duyệt
+      if (status === 'Duyệt' && summary.status !== 'Duyệt') {
+        summary.approvedBy = req.userId;
+        summary.approvedDate = new Date();
+      }
+      summary.status = status;
+    }
     if (notes !== undefined) summary.notes = notes;
 
     summary.updatedBy = req.userId;

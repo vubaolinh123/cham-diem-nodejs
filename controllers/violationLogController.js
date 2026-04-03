@@ -117,6 +117,7 @@ const createViolationLog = async (req, res, next) => {
       week,
       severity,
       images,
+      evidence,
       status
     } = req.body;
 
@@ -140,7 +141,7 @@ const createViolationLog = async (req, res, next) => {
       severity: severity || violationTypeData.severity,
       reportedBy: req.userId,
       status: status || 'Chờ duyệt',
-      images
+      evidence: evidence || images || [],
     });
 
     await violation.save();
@@ -178,6 +179,7 @@ const updateViolationLog = async (req, res, next) => {
       week,
       severity,
       images,
+      evidence,
       status
     } = req.body;
 
@@ -192,7 +194,7 @@ const updateViolationLog = async (req, res, next) => {
     if (classId) violation.class = classId;
     if (week) violation.week = week;
     if (description) violation.description = description;
-    if (images) violation.images = images;
+    if (evidence || images) violation.evidence = evidence || images;
     
     if (violationType) {
         // Validation check for violationType existence could be added here

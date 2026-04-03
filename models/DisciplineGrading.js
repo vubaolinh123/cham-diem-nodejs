@@ -90,11 +90,10 @@ const disciplineGradingSchema = new mongoose.Schema(
               min: 0,
             },
 
-            // Điểm (5 - violations, tối thiểu 0)
+            // Điểm (maxScore - violations, có thể âm)
             score: {
               type: Number,
               default: 5,
-              min: 0,
             },
 
             // Danh sách học sinh vi phạm

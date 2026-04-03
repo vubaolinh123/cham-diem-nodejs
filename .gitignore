@@ -22,6 +22,9 @@ pnpm-debug.log*
 coverage/
 .nyc_output/
 
+# Uploads
+uploads/
+
 # Build
 dist/
 build/

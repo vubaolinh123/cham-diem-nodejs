@@ -497,7 +497,7 @@ exports.syncViolations = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Không tìm thấy dữ liệu' });
     }
 
-    const { itemId, day, studentIds, violationTypeName, description } = req.body;
+    const { itemId, day, studentIds, violationTypeName, description, evidence } = req.body;
     
     if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
       return res.status(400).json({ success: false, message: 'Danh sách học sinh là bắt buộc' });
@@ -522,42 +522,49 @@ exports.syncViolations = async (req, res) => {
     const createdViolations = [];
     const skippedDuplicates = [];
 
-    for (const studentId of studentIds) {
-      // Check for existing violation (same student + same type + same date) to avoid duplicates
-      const startOfDay = new Date(violationDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(violationDate);
-      endOfDay.setHours(23, 59, 59, 999);
+    // Compute start/end of day once (outside loop)
+    const startOfDay = new Date(violationDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(violationDate);
+    endOfDay.setHours(23, 59, 59, 999);
 
-      const existing = await ViolationLog.findOne({
+    for (const studentId of studentIds) {
+      // Atomic upsert: find existing or create new — race-safe
+      const filter = {
         student: studentId,
         class: disciplineGrading.class,
         week: disciplineGrading.week,
         violationType: violationTypeDoc._id,
         date: { $gte: startOfDay, $lte: endOfDay },
-      });
-
-      if (existing) {
-        skippedDuplicates.push(studentId);
-        continue;
-      }
-
-      const violation = new ViolationLog({
-        student: studentId,
-        class: disciplineGrading.class,
-        week: disciplineGrading.week,
-        violationType: violationTypeDoc._id,
-        date: violationDate,
-        description: description || `Vi phạm ${violationTypeName} - ${itemId ? 'Mục ' + itemId : ''}`,
-        reportedBy: req.userId || req.user?._id,
-        status: 'Chờ duyệt',
-        severity: violationTypeDoc.severity || 'Nhẹ',
-        category: 'Nề nếp',
         source: 'conduct_grading',
-      });
+      };
 
-      await violation.save();
-      createdViolations.push(violation);
+      const result = await ViolationLog.findOneAndUpdate(
+        filter,
+        {
+          $setOnInsert: {
+            student: studentId,
+            class: disciplineGrading.class,
+            week: disciplineGrading.week,
+            violationType: violationTypeDoc._id,
+            date: violationDate,
+            description: description || `Vi phạm ${violationTypeName} - ${itemId ? 'Mục ' + itemId : ''}`,
+            reportedBy: req.userId || req.user?._id,
+            status: 'Chờ duyệt',
+            severity: violationTypeDoc.severity || 'Nhẹ',
+            category: 'Nề nếp',
+            source: 'conduct_grading',
+            ...(evidence && evidence.length > 0 ? { evidence } : {}),
+          },
+        },
+        { upsert: true, new: true, rawResult: true }
+      );
+
+      if (result.lastErrorObject?.updatedExisting) {
+        skippedDuplicates.push(studentId);
+      } else {
+        createdViolations.push(result.value);
+      }
     }
 
     // Auto-update WeeklySummary
