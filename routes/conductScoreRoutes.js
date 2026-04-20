@@ -25,7 +25,7 @@ router.get('/:id', authenticate, getConductScoreById);
 router.post(
   '/',
   authenticate,
-  authorize('Cờ đỏ', 'Giáo viên chủ nghiệm', 'Quản trị'),
+  authorize('Cờ đỏ', 'Giáo viên chủ nhiệm', 'Quản trị'),
   validateConductScore,
   createConductScore
 );
@@ -34,7 +34,7 @@ router.post(
 router.put(
   '/:id/status',
   authenticate,
-  authorize('Giáo viên chủ nghiệm', 'Quản trị'),
+  authorize('Giáo viên chủ nhiệm', 'Quản trị'),
   updateConductScoreStatus
 );
 

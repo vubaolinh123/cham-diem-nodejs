@@ -23,6 +23,26 @@ const violationTypeSchema = new mongoose.Schema(
       min: 0,
     },
 
+    // Danh mục vi phạm
+    category: {
+      type: String,
+      enum: {
+        values: ['Nề nếp', 'Học tập', 'Kỷ luật', 'Khác'],
+        message: 'Danh mục phải là: Nề nếp, Học tập, Kỷ luật, hoặc Khác',
+      },
+      default: 'Khác',
+    },
+
+    // Mức độ vi phạm
+    severity: {
+      type: String,
+      enum: {
+        values: ['Nhẹ', 'Trung bình', 'Nặng'],
+        message: 'Mức độ phải là: Nhẹ, Trung bình, hoặc Nặng',
+      },
+      default: 'Nhẹ',
+    },
+
     // Trạng thái (hoạt động/không hoạt động)
     isActive: {
       type: Boolean,

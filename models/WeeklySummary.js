@@ -187,6 +187,12 @@ const weeklySummarySchema = new mongoose.Schema(
     // Ngày duyệt
     approvedDate: Date,
 
+    // Người cập nhật cuối cùng
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+
     // Ghi chú
     notes: String,
   },

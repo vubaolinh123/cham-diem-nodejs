@@ -495,7 +495,7 @@ const generateWeeks = async (req, res, next) => {
         weekNumber,
         startDate: weekStart,
         endDate: weekEnd,
-        status: 'Chờ',
+        status: 'Nháp',
         createdBy: req.userId,
       });
 

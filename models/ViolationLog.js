@@ -39,8 +39,8 @@ const violationLogSchema = new mongoose.Schema(
     // Mô tả chi tiết vi phạm
     description: {
       type: String,
-      required: [true, 'Mô tả chi tiết là bắt buộc'],
       trim: true,
+      default: '',
     },
 
     // Thời gian vi phạm (nếu có)

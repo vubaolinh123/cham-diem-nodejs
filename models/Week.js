@@ -32,8 +32,8 @@ const weekSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: {
-        values: ['Nháp', 'Duyệt', 'Khóa'],
-        message: 'Trạng thái phải là: Nháp, Duyệt, hoặc Khóa',
+        values: ['Nháp', 'Chờ', 'Duyệt', 'Khóa'],
+        message: 'Trạng thái phải là: Nháp, Chờ, Duyệt, hoặc Khóa',
       },
       default: 'Nháp',
     },

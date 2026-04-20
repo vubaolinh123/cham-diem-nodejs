@@ -135,17 +135,52 @@ const validateWeek = [
   handleValidationErrors,
 ];
 
-const validateViolationLog = [
+const validateCreateViolationLog = [
   body('student')
     .notEmpty()
     .withMessage('Học sinh là bắt buộc'),
+  body('class')
+    .notEmpty()
+    .withMessage('Lớp là bắt buộc'),
   body('violationType')
     .notEmpty()
     .withMessage('Loại vi phạm là bắt buộc'),
-  body('description')
-    .trim()
+  body('week')
     .notEmpty()
-    .withMessage('Mô tả là bắt buộc'),
+    .withMessage('Tuần học là bắt buộc'),
+  body('date')
+    .notEmpty()
+    .withMessage('Ngày vi phạm là bắt buộc'),
+  body('description')
+    .optional()
+    .trim(),
+  handleValidationErrors,
+];
+
+const validateUpdateViolationLog = [
+  body('student')
+    .optional()
+    .notEmpty()
+    .withMessage('Học sinh là bắt buộc'),
+  body('class')
+    .optional()
+    .notEmpty()
+    .withMessage('Lớp là bắt buộc'),
+  body('violationType')
+    .optional()
+    .notEmpty()
+    .withMessage('Loại vi phạm là bắt buộc'),
+  body('week')
+    .optional()
+    .notEmpty()
+    .withMessage('Tuần học là bắt buộc'),
+  body('date')
+    .optional()
+    .notEmpty()
+    .withMessage('Ngày vi phạm là bắt buộc'),
+  body('description')
+    .optional()
+    .trim(),
   handleValidationErrors,
 ];
 
@@ -180,7 +215,8 @@ module.exports = {
   validateClass,
   validateStudent,
   validateWeek,
-  validateViolationLog,
+  validateCreateViolationLog,
+  validateUpdateViolationLog,
   validateConductScore,
   validateAcademicScore,
 };

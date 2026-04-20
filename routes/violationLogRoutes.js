@@ -11,7 +11,7 @@ const {
   deleteViolationLog,
 } = require('../controllers/violationLogController');
 const { authenticate, authorize } = require('../middlewares/auth');
-const { validateViolationLog } = require('../middlewares/validation');
+const { validateCreateViolationLog, validateUpdateViolationLog } = require('../middlewares/validation');
 
 /**
  * Vi phạm routes
@@ -29,7 +29,7 @@ router.post(
   '/',
   authenticate,
   authorize('Cờ đỏ', 'Giáo viên chủ nhiệm', 'Quản trị'),
-  validateViolationLog,
+  validateCreateViolationLog,
   createViolationLog
 );
 
@@ -38,7 +38,7 @@ router.put(
   '/:id',
   authenticate,
   authorize('Cờ đỏ', 'Giáo viên chủ nhiệm', 'Quản trị'),
-  validateViolationLog,
+  validateUpdateViolationLog,
   updateViolationLog
 );
 
