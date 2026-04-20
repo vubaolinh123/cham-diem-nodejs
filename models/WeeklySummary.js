@@ -23,6 +23,16 @@ const weeklySummarySchema = new mongoose.Schema(
         type: Number,
         default: 0,
       },
+      // Điểm tối đa có thể đạt được
+      maxPossible: {
+        type: Number,
+        default: 100,
+      },
+      // Phần trăm đạt được
+      percentage: {
+        type: Number,
+        default: 0,
+      },
       // Điểm trung bình mỗi ngày
       average: {
         type: Number,
@@ -120,6 +130,16 @@ const weeklySummarySchema = new mongoose.Schema(
         type: Number,
         default: 0,
       },
+      // Vi phạm bị từ chối
+      rejected: {
+        type: Number,
+        default: 0,
+      },
+      // Tổng điểm trừ vi phạm đã duyệt
+      totalPenalty: {
+        type: Number,
+        default: 0,
+      },
       // Chi tiết theo loại vi phạm
       byType: [
         {
@@ -154,8 +174,23 @@ const weeklySummarySchema = new mongoose.Schema(
         },
         default: 'Chưa xếp cờ',
       },
-      // Tổng điểm (nề nếp + học tập + thưởng)
+      // Tổng điểm (nề nếp + học tập + thưởng - trừ vi phạm)
       totalScore: {
+        type: Number,
+        default: 0,
+      },
+      // Tổng điểm tối đa có thể đạt (nề nếp max + học tập max)
+      maxTotalScore: {
+        type: Number,
+        default: 200,
+      },
+      // Phần trăm đạt được so với tổng tối đa
+      percentage: {
+        type: Number,
+        default: 0,
+      },
+      // Điểm trừ do vi phạm đã duyệt
+      penaltyDeduction: {
         type: Number,
         default: 0,
       },

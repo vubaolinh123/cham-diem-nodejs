@@ -132,11 +132,16 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     // But helper implementation recalculates it. Model has goodDayCount.
     // academicScores.goodDays = academicScores.byDay.filter(d => d.isGoodDay).length; // redundant if taking from model
 
+    // goodWeekBonus threshold: if school has 5 days (T2-T6), need 5 good days;
+    // if school has 4 days (T2-T5), need 4 good days
+    const schoolDayCount = disciplineGrading?.items?.[0]?.applicableDays?.length || 5;
+    const goodWeekThreshold = schoolDayCount >= 5 ? 5 : schoolDayCount;
+    
     // Calculate bonuses based on school year config
     const bonusConfig = schoolYear.bonusConfiguration || {};
     const bonuses = {
       goodDayBonus: academicScores.goodDays * (bonusConfig.goodDayBonus || 0),
-      goodWeekBonus: academicScores.goodDays >= 5 ? (bonusConfig.goodWeekBonus || 0) : 0,
+      goodWeekBonus: academicScores.goodDays >= goodWeekThreshold ? (bonusConfig.goodWeekBonus || 0) : 0,
       total: 0,
     };
     bonuses.total = bonuses.goodDayBonus + bonuses.goodWeekBonus;
@@ -203,20 +208,20 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
       .slice(0, 5); // Top 5 violators
 
     // Calculate total score and classification
-    // Formula: Total = Conduct Score + Academic Score - Violation Penalty
-    // Conduct Score: use .total (0-100 scale based on maxPossible)
-    // Academic Score: use .total (0-100 scale)
-    // Violation Penalty: sum of defaultPenalty for approved violations
-    const conductScoreValue = conductScores.total || 0; // 0-100 scale
-    const academicScoreValue = academicScores.total || 0; // 0-100 scale
+    // Calculate total score and classification
+    // Formula: Total = Conduct Score + Academic Score + Bonuses - Violation Penalty
+    // All scores are in their original scales (not normalized)
+    const conductScoreValue = conductScores.total || 0;
+    const academicScoreValue = academicScores.total || 0;
+    const bonusValue = bonuses.total || 0;
     const penaltyDeduction = violationPenaltyTotal || 0;
     
-    // Total = Conduct + Academic - Penalty (0-200 base, can go lower with penalties)
-    const totalScore = conductScoreValue + academicScoreValue - penaltyDeduction;
+    // Total = Conduct (0-maxPossible) + Academic (0-100) + Bonuses - Penalties
+    const totalScore = conductScoreValue + academicScoreValue + bonusValue - penaltyDeduction;
     
-    // Calculate percentage on a 0-200 scale (divide by 2 to get 0-100)
-    const percentage = Math.round(totalScore / 2);
-
+    // Calculate percentage relative to max possible score
+    const maxTotal = (conductScores.maxPossible || 100) + 100; // conduct max + academic max (always 100)
+    const percentage = maxTotal > 0 ? Math.round((totalScore / maxTotal) * 100) : 0;
     // Get classification thresholds from school year
     // Flag is now manually assigned by admin, no auto-calculation
     // Keep existing flag if summary exists, otherwise set null
@@ -226,7 +231,8 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     const classification = {
       flag,
       totalScore,
-      penaltyDeduction, // Track penalty separately for debugging
+      maxTotalScore: maxTotal, // Track max possible total (conduct max + academic max)
+      penaltyDeduction,
       percentage,
       ranking: null, // Will be calculated separately when comparing classes
     };
