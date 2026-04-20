@@ -104,7 +104,7 @@ exports.getByClassAndWeek = async (req, res) => {
   try {
     const { classId, weekId } = req.params;
 
-    const disciplineGrading = await DisciplineGrading.findOne({
+    let disciplineGrading = await DisciplineGrading.findOne({
       class: classId,
       week: weekId,
     }).populate(populateOptions);
@@ -114,6 +114,45 @@ exports.getByClassAndWeek = async (req, res) => {
         success: false,
         message: 'Không tìm thấy dữ liệu',
       });
+    }
+
+    // Auto-fix: ensure day 6 (Thứ 6) is present in applicableDays and dayScores
+    // for items that should apply on all weekdays (legacy data may lack day 6)
+    const maxPointsPerItem = disciplineGrading.maxPointsPerItem || disciplineGrading.items?.[0]?.maxScore || 5;
+    let needsSave = false;
+    
+    if (disciplineGrading.items && Array.isArray(disciplineGrading.items)) {
+      for (const item of disciplineGrading.items) {
+        // Skip Monday-only items like "Sinh hoạt dưới cờ"
+        const isMondayOnly = item.applicableDays?.length === 1 && item.applicableDays.includes(2);
+        
+        if (!isMondayOnly && item.applicableDays && !item.applicableDays.includes(6)) {
+          // Add day 6 to applicableDays
+          item.applicableDays.push(6);
+          item.applicableDays.sort((a, b) => a - b);
+          
+          // Add day 6 to dayScores with full marks
+          const day6Exists = item.dayScores?.some(ds => ds.day === 6);
+          if (!day6Exists) {
+            if (!item.dayScores) item.dayScores = [];
+            item.dayScores.push({
+              day: 6,
+              violations: 0,
+              score: item.maxScore || maxPointsPerItem,
+              violatingStudentIds: [],
+            });
+            item.dayScores.sort((a, b) => a.day - b.day);
+          }
+          
+          // Recalculate totalScore
+          item.totalScore = item.dayScores.reduce((sum, ds) => sum + (ds.score || 0), 0);
+          needsSave = true;
+        }
+      }
+    }
+    
+    if (needsSave) {
+      await disciplineGrading.save();
     }
 
     res.status(200).json({
@@ -400,7 +439,6 @@ exports.startGrading = async (req, res) => {
     }
 
     // Get conduct configuration items from school year
-    // Get conduct configuration items from school year
     let rawConductItems = [];
     if (schoolYear.conductConfiguration && schoolYear.conductConfiguration.items && schoolYear.conductConfiguration.items.length > 0) {
       // Ensure we have plain objects, not Mongoose documents
@@ -419,10 +457,35 @@ exports.startGrading = async (req, res) => {
     }
     
     // Support Monday through Friday (day 2-6)
-    const conductItems = rawConductItems.map(item => ({
-      ...item,
-      applicableDays: (item.applicableDays || [2, 3, 4, 5, 6]).filter(day => day >= 2 && day <= 6)
-    }));
+    // Auto-fix: ensure day 6 (Thứ 6) is included for items that should apply on all weekdays
+    const daysPerWeek = schoolYear.conductConfiguration?.daysPerWeek || 5;
+    const allWeekdays = [2, 3, 4, 5, 6]; // Mon-Fri
+    const allDaysIncludingSat = [2, 3, 4, 5, 6]; // Currently Mon-Fri only
+    
+    const conductItems = rawConductItems.map(item => {
+      let days = (item.applicableDays || allWeekdays).filter(day => day >= 2 && day <= 6);
+      
+      // Auto-fix legacy data: if daysPerWeek >= 5 and item has days 2-5 but missing day 6,
+      // add day 6 (except for "Sinh hoạt dưới cờ" which is only on Monday)
+      if (daysPerWeek >= 5 && days.length >= 4 && !days.includes(6)) {
+        // Only add day 6 if this isn't "Sinh hoạt dưới cờ" (Monday-only item)
+        const isMondayOnly = days.length === 1 && days.includes(2);
+        if (!isMondayOnly) {
+          days.push(6);
+          days.sort();
+        }
+      }
+      
+      // Ensure at least all weekdays are present for items that apply on all days
+      if (days.length === 0) {
+        days = allWeekdays;
+      }
+      
+      return {
+        ...item,
+        applicableDays: days,
+      };
+    });
     
     const maxPointsPerItem = schoolYear.conductConfiguration?.maxPointsPerItem || 5;
 

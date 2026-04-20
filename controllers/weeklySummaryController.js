@@ -105,7 +105,8 @@ const getWeeklySummaryByClassAndWeek = async (req, res, next) => {
 };
 
 /**
- * Tạo/Cập nhật tổng hợp tuần
+/**
+ * Tạo/Cập nhật tổng hợp tuần (dùng weeklySummaryHelper để lấy đúng dữ liệu từ DisciplineGrading/ClassAcademicGrading)
  * @route POST /api/weekly-summaries/generate
  * @access Admin
  */
@@ -125,82 +126,26 @@ const generateWeeklySummary = async (req, res, next) => {
       return sendError(res, 400, 'Lớp không tìm thấy');
     }
 
-    // Lấy dữ liệu điểm nề nếp
-    const conductScores = await ConductScore.find({
-      week,
-      class: classId,
-      status: { $in: ['Hoàn thành', 'Duyệt', 'Khóa'] },
-    });
+    // Use the helper which correctly reads from DisciplineGrading, ClassAcademicGrading, ViolationLog
+    const { updateWeeklySummary } = require('../utils/weeklySummaryHelper');
+    const summary = await updateWeeklySummary(week, classId, req.userId);
 
-    // Lấy dữ liệu điểm học tập
-    const academicScores = await AcademicScore.find({
-      week,
-      class: classId,
-      status: { $in: ['Hoàn thành', 'Duyệt', 'Khóa'] },
-    });
-
-    // Lấy dữ liệu vi phạm
-    const violations = await ViolationLog.find({
-      week,
-      class: classId,
-    }).populate('violationType', 'name category');
-
-    // Lấy cấu hình năm học
-    const schoolYear = await SchoolYear.findById(weekData.schoolYear);
-
-    // Tính toán tổng hợp
-    const conductData = aggregateConductScores(conductScores);
-    const academicData = aggregateAcademicScores(academicScores);
-    const violationData = aggregateViolations(violations);
-    const bonusData = calculateBonuses(conductData, academicData, schoolYear.bonusConfiguration);
-
-    const totalScore = conductData.total + academicData.total + bonusData.total;
-    // Flag is now manually assigned by admin
-    const classification = {
-      flag: 'Chưa xếp cờ',
-      totalScore,
-      ranking: 0,
-    };
-
-    // Kiểm tra tổng hợp đã tồn tại
-    let summary = await WeeklySummary.findOne({ week, class: classId });
-
-    if (summary) {
-      // Cập nhật
-      summary.conductScores = conductData;
-      summary.academicScores = academicData;
-      summary.bonuses = bonusData;
-      summary.violations = violationData;
-      summary.classification = classification;
-      summary.updatedBy = req.userId;
-    } else {
-      // Tạo mới
-      summary = new WeeklySummary({
-        week,
-        class: classId,
-        conductScores: conductData,
-        academicScores: academicData,
-        bonuses: bonusData,
-        violations: violationData,
-        classification,
-        createdBy: req.userId,
-      });
+    if (!summary) {
+      return sendError(res, 404, 'Không tìm thấy dữ liệu điểm nề nếp hoặc học tập cho tuần và lớp này');
     }
 
-    await summary.save();
     await summary.populate([
       { path: 'week', select: 'weekNumber startDate endDate' },
       { path: 'class', select: 'name grade' },
     ]);
 
-    return sendResponse(res, 201, true, 'Tạo/Cập nhật tổng hợp tuần thành công', {
+    return sendResponse(res, 200, true, 'Tổng hợp tuần thành công', {
       summary,
     });
   } catch (error) {
     next(error);
   }
 };
-
 /**
  * Tổng hợp điểm nề nếp
  */
