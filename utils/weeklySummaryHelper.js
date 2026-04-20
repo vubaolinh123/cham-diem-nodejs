@@ -91,7 +91,7 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
 
     if (conductScores.maxPossible > 0) {
       // Calculate average based on actual number of days with scores
-      const dayCount = disciplineGrading?.items?.[0]?.applicableDays?.length || 5;
+      const dayCount = disciplineGrading?.items?.[0]?.applicableDays?.length || 6;
       conductScores.average = Math.round(conductScores.total / dayCount);
     }
 
@@ -136,7 +136,7 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     const bonusConfig = schoolYear.bonusConfiguration || {};
     const bonuses = {
       goodDayBonus: academicScores.goodDays * (bonusConfig.goodDayBonus || 0),
-      goodWeekBonus: academicScores.goodDays >= 4 ? (bonusConfig.goodWeekBonus || 0) : 0,
+      goodWeekBonus: academicScores.goodDays >= 6 ? (bonusConfig.goodWeekBonus || 0) : 0,
       total: 0,
     };
     bonuses.total = bonuses.goodDayBonus + bonuses.goodWeekBonus;
@@ -235,17 +235,21 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     let summary = await WeeklySummary.findOne({ week: weekId, class: classId });
 
     if (summary) {
-      // Do not overwrite approved/locked snapshots
-      if (summary.status === 'Duyệt' || summary.status === 'Khóa') {
-        console.log(`updateWeeklySummary: Skipped - summary is ${summary.status} (snapshot preserved)`);
-        return summary;
-      }
-      // Update existing draft
+      // Always update scores data, but preserve status and manually-assigned flag
+      // This ensures the duyệt/khóa tuần page always shows the latest data
+      const preservedStatus = summary.status;
+      const preservedFlag = summary.classification?.flag || null;
+
       summary.conductScores = conductScores;
       summary.academicScores = academicScores;
       summary.bonuses = bonuses;
       summary.violations = violationsSummary;
-      summary.classification = classification;
+      summary.classification = {
+        ...classification,
+        flag: preservedFlag,
+      };
+      // Restore the original status (don't auto-change from Duyệt/Khóa)
+      summary.status = preservedStatus;
       if (userId) summary.updatedBy = userId;
     } else {
       // Create new
@@ -261,7 +265,6 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
         createdBy: userId,
       });
     }
-
     await summary.save();
     
     console.log(`updateWeeklySummary: Updated summary for week ${weekId}, class ${classId}, flag: ${flag}`);

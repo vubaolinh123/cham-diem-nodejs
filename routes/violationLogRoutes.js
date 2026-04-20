@@ -28,7 +28,7 @@ router.get('/:id', authenticate, getViolationLogById);
 router.post(
   '/',
   authenticate,
-  authorize('Cờ đỏ', 'Giáo viên chủ nghiệm', 'Quản trị'),
+  authorize('Cờ đỏ', 'Giáo viên chủ nhiệm', 'Quản trị'),
   validateViolationLog,
   createViolationLog
 );
@@ -37,7 +37,7 @@ router.post(
 router.put(
   '/:id',
   authenticate,
-  authorize('Cờ đỏ', 'Giáo viên chủ nghiệm', 'Quản trị'),
+  authorize('Cờ đỏ', 'Giáo viên chủ nhiệm', 'Quản trị'),
   validateViolationLog,
   updateViolationLog
 );
@@ -46,7 +46,7 @@ router.put(
 router.put(
   '/:id/approve',
   authenticate,
-  authorize('Giáo viên chủ nghiệm', 'Quản trị'),
+  authorize('Giáo viên chủ nhiệm', 'Quản trị'),
   approveViolation
 );
 
@@ -54,7 +54,7 @@ router.put(
 router.put(
   '/:id/reject',
   authenticate,
-  authorize('Giáo viên chủ nghiệm', 'Quản trị'),
+  authorize('Giáo viên chủ nhiệm', 'Quản trị'),
   rejectViolation
 );
 

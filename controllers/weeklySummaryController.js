@@ -273,7 +273,7 @@ const aggregateViolations = (violations) => {
  */
 const calculateBonuses = (conductData, academicData, bonusConfig) => {
   const goodDayBonus = academicData.goodDays * bonusConfig.goodDayBonus;
-  const goodWeekBonus = academicData.goodDays === 5 ? bonusConfig.goodWeekBonus : 0;
+  const goodWeekBonus = academicData.goodDays === 6 ? bonusConfig.goodWeekBonus : 0;
 
   return {
     goodDayBonus,
