@@ -181,36 +181,49 @@ const updateViolationLog = async (req, res, next) => {
       severity,
       images,
       evidence,
-      status
+      status,
+      category,
     } = req.body;
 
-    let violation = await ViolationLog.findById(id);
+    // Build update object - only include fields that are provided
+    const updateData = {};
+    if (date) updateData.date = date;
+    if (student) updateData.student = student;
+    if (classId) updateData.class = classId;
+    if (week) updateData.week = week;
+    if (description) updateData.description = description;
+    if (evidence || images) updateData.evidence = evidence || images;
+    if (violationType) updateData.violationType = violationType;
+    if (severity) updateData.severity = severity;
+    if (category) updateData.category = category;
+
+    // Validate violationType if provided
+    if (violationType) {
+      const violationTypeData = await ViolationType.findById(violationType);
+      if (!violationTypeData) {
+        return sendError(res, 400, 'Loại vi phạm không tìm thấy');
+      }
+      // Auto-fill severity and category from violationType if not provided
+      if (!severity) updateData.severity = violationTypeData.severity || 'Nhẹ';
+      if (!category) updateData.category = violationTypeData.category || 'Khác';
+    }
+
+    updateData.updatedBy = req.userId;
+
+    // Use findByIdAndUpdate with runValidators: false to avoid re-validating all required fields
+    // This is safe because we're only updating specific fields, not replacing the document
+    const violation = await ViolationLog.findByIdAndUpdate(
+      id,
+      { $set: updateData },
+      { new: true, runValidators: false }
+    );
 
     if (!violation) {
       return sendError(res, 404, 'Vi phạm không tìm thấy');
     }
 
-    if (date) violation.date = date;
-    if (student) violation.student = student;
-    if (classId) violation.class = classId;
-    if (week) violation.week = week;
-    if (description) violation.description = description;
-    if (evidence || images) violation.evidence = evidence || images;
-    
-    if (violationType) {
-        // Validation check for violationType existence could be added here
-        violation.violationType = violationType;
-    }
-    if (severity) violation.severity = severity;
-
-    // Not updating status here to enforce approve/reject workflow, 
-    // unless it is still pending? For now, we trust the Dialogs to handle status.
-    // But if status is passed and valid (e.g. back to pending), maybe allow?
-    // Let's rely on specific endpoints for status changes for now to be safe.
-
-    violation.updatedBy = req.userId;
-
-    await violation.save();
+    // Update weekly summary after violation change
+    await updateWeeklySummary(violation.week, violation.class, req.userId);
 
     await violation.populate([
       { path: 'week', select: 'weekNumber startDate endDate' },
@@ -238,23 +251,30 @@ const approveViolation = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const violation = await ViolationLog.findById(id);
-
-    if (!violation) {
+    // First check existence and status
+    const existingViolation = await ViolationLog.findById(id);
+    if (!existingViolation) {
       return sendError(res, 404, 'Vi phạm không tìm thấy');
     }
 
-    if (violation.status === 'Đã duyệt') {
+    if (existingViolation.status === 'Đã duyệt') {
       return sendError(res, 409, 'Vi phạm đã được duyệt');
     }
 
-    violation.status = 'Đã duyệt';
-    violation.approvedBy = req.userId;
-    violation.approvedDate = new Date();
-    violation.updatedBy = req.userId;
+    // Use findByIdAndUpdate to avoid re-validating all required fields
+    const violation = await ViolationLog.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          status: 'Đã duyệt',
+          approvedBy: req.userId,
+          approvedDate: new Date(),
+          updatedBy: req.userId,
+        },
+      },
+      { new: true, runValidators: false }
+    );
 
-    await violation.save();
-    
     // Valid for unpopulated fields (IDs)
     await updateWeeklySummary(violation.week, violation.class, req.userId);
 
@@ -288,23 +308,30 @@ const rejectViolation = async (req, res, next) => {
       return sendError(res, 400, 'Lý do từ chối là bắt buộc');
     }
 
-    const violation = await ViolationLog.findById(id);
-
-    if (!violation) {
+    // First check existence and status
+    const existingViolation = await ViolationLog.findById(id);
+    if (!existingViolation) {
       return sendError(res, 404, 'Vi phạm không tìm thấy');
     }
 
-    if (violation.status === 'Đã duyệt') {
+    if (existingViolation.status === 'Đã duyệt') {
       return sendError(res, 409, 'Không thể từ chối vi phạm đã duyệt');
     }
 
-    violation.status = 'Từ chối';
-    violation.approvedBy = req.userId;
-    violation.approvedDate = new Date();
-    violation.notes = reason;
-    violation.updatedBy = req.userId;
-
-    await violation.save();
+    // Use findByIdAndUpdate to avoid re-validating all required fields
+    const violation = await ViolationLog.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          status: 'Từ chối',
+          approvedBy: req.userId,
+          approvedDate: new Date(),
+          notes: reason,
+          updatedBy: req.userId,
+        },
+      },
+      { new: true, runValidators: false }
+    );
 
     // Valid for unpopulated fields (IDs)
     await updateWeeklySummary(violation.week, violation.class, req.userId);
@@ -334,23 +361,32 @@ const reopenViolation = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const violation = await ViolationLog.findById(id);
-
-    if (!violation) {
+    // First check existence and status
+    const existingViolation = await ViolationLog.findById(id);
+    if (!existingViolation) {
       return sendError(res, 404, 'Vi phạm không tìm thấy');
     }
 
-    if (violation.status === 'Chờ duyệt') {
+    if (existingViolation.status === 'Chờ duyệt') {
       return sendError(res, 409, 'Vi phạm đang ở trạng thái chờ duyệt');
     }
 
-    violation.status = 'Chờ duyệt';
-    violation.approvedBy = null;
-    violation.approvedDate = null;
-    violation.notes = req.body.reason || 'Mở lại bởi Admin';
-    violation.updatedBy = req.userId;
-
-    await violation.save();
+    // Use findByIdAndUpdate to avoid re-validating all required fields
+    const violation = await ViolationLog.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          status: 'Chờ duyệt',
+          approvedDate: null,
+          notes: req.body.reason || 'Mở lại bởi Admin',
+          updatedBy: req.userId,
+        },
+        $unset: {
+          approvedBy: '',
+        },
+      },
+      { new: true, runValidators: false }
+    );
 
     // Auto-update WeeklySummary after status change
     await updateWeeklySummary(violation.week, violation.class, req.userId);
@@ -372,6 +408,71 @@ const reopenViolation = async (req, res, next) => {
 };
 
 /**
+ * Cập nhật trạng thái vi phạm
+ * @route PATCH /api/violation-logs/:id/status
+ * @access GVCN, Admin
+ */
+const updateViolationStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status, approvalNotes } = req.body;
+
+    const validStatuses = ['Chờ duyệt', 'Đã duyệt', 'Từ chối'];
+    if (!validStatuses.includes(status)) {
+      return sendError(res, 400, 'Trạng thái không hợp lệ');
+    }
+
+    // First check existence
+    const existingViolation = await ViolationLog.findById(id);
+    if (!existingViolation) {
+      return sendError(res, 404, 'Vi phạm không tìm thấy');
+    }
+
+    const updateData = {
+      status,
+      updatedBy: req.userId,
+    };
+
+    if (status === 'Đã duyệt') {
+      updateData.approvedBy = req.userId;
+      updateData.approvedDate = new Date();
+      if (approvalNotes) updateData.approvalNotes = approvalNotes;
+    } else if (status === 'Từ chối') {
+      updateData.approvedBy = req.userId;
+      updateData.approvedDate = new Date();
+      if (approvalNotes) updateData.notes = approvalNotes;
+    } else if (status === 'Chờ duyệt') {
+      // Reopen - clear approval info
+    }
+
+    // Use findByIdAndUpdate to avoid re-validating all required fields
+    const violation = await ViolationLog.findByIdAndUpdate(
+      id,
+      { $set: updateData },
+      { new: true, runValidators: false }
+    );
+
+    // Auto-update WeeklySummary after status change
+    await updateWeeklySummary(violation.week, violation.class, req.userId);
+
+    await violation.populate([
+      { path: 'week', select: 'weekNumber startDate endDate' },
+      { path: 'student', select: 'studentId fullName' },
+      { path: 'class', select: 'name grade' },
+      { path: 'violationType', select: 'name category severity' },
+      { path: 'reportedBy', select: 'fullName email role' },
+      { path: 'approvedBy', select: 'fullName email' },
+    ]);
+
+    return sendResponse(res, 200, true, 'Cập nhật trạng thái vi phạm thành công', {
+      violation,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Xóa vi phạm
  * @route DELETE /api/violation-logs/:id
  * @access Admin (can delete even approved violations)
@@ -381,22 +482,22 @@ const deleteViolationLog = async (req, res, next) => {
     const { id } = req.params;
     const { force } = req.query; // Force delete even if approved
 
-    const violation = await ViolationLog.findById(id);
+    const existingViolation = await ViolationLog.findById(id);
 
-    if (!violation) {
+    if (!existingViolation) {
       return sendError(res, 404, 'Vi phạm không tìm thấy');
     }
 
     // Only restrict if not force AND not admin. 
     // Since route is Admin only, we allow force delete for approved violations.
     // If force=true, allow deletion regardless of status
-    if (violation.status === 'Đã duyệt' && force !== 'true') {
+    if (existingViolation.status === 'Đã duyệt' && force !== 'true') {
       return sendError(res, 409, 'Vi phạm đã duyệt. Sử dụng force=true để xóa.');
     }
 
     // Store week and class before deletion
-    const weekId = violation.week;
-    const classId = violation.class;
+    const weekId = existingViolation.week;
+    const classId = existingViolation.class;
 
     await ViolationLog.findByIdAndDelete(id);
 
@@ -435,6 +536,7 @@ module.exports = {
   getViolationLogById,
   createViolationLog,
   updateViolationLog,
+  updateViolationStatus,
   approveViolation,
   rejectViolation,
   reopenViolation,

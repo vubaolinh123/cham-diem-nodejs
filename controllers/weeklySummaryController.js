@@ -75,6 +75,36 @@ const getWeeklySummaryById = async (req, res, next) => {
 };
 
 /**
+ * Lấy tổng hợp tuần theo lớp và tuần
+ * @route GET /api/weekly-summaries/class/:classId/week/:weekId
+ * @access Authenticated
+ */
+const getWeeklySummaryByClassAndWeek = async (req, res, next) => {
+  try {
+    const { classId, weekId } = req.params;
+
+    const summary = await WeeklySummary.findOne({
+      week: weekId,
+      class: classId,
+    })
+      .populate('week', 'weekNumber startDate endDate')
+      .populate('class', 'name grade')
+      .populate('violations.byType.violationType', 'name category')
+      .populate('violations.topViolators.student', 'studentId fullName');
+
+    if (!summary) {
+      return sendError(res, 404, 'Tổng hợp tuần không tìm thấy');
+    }
+
+    return sendResponse(res, 200, true, 'Lấy tổng hợp tuần theo lớp và tuần thành công', {
+      summary,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Tạo/Cập nhật tổng hợp tuần
  * @route POST /api/weekly-summaries/generate
  * @access Admin
@@ -646,6 +676,7 @@ const unlockWeeklySummary = async (req, res, next) => {
 module.exports = {
   getAllWeeklySummaries,
   getWeeklySummaryById,
+  getWeeklySummaryByClassAndWeek,
   generateWeeklySummary,
   createWeeklySummary,
   updateWeeklySummary,

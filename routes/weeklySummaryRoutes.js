@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   getAllWeeklySummaries,
   getWeeklySummaryById,
+  getWeeklySummaryByClassAndWeek,
   generateWeeklySummary,
   createWeeklySummary,
   updateWeeklySummary,
@@ -21,6 +22,9 @@ router.get('/', authenticate, getAllWeeklySummaries);
 
 // Lấy tổng hợp tuần theo ID (Authenticated)
 router.get('/:id', authenticate, getWeeklySummaryById);
+
+// Lấy tổng hợp tuần theo lớp và tuần (Authenticated)
+router.get('/class/:classId/week/:weekId', authenticate, getWeeklySummaryByClassAndWeek);
 
 // Tạo tổng hợp tuần mới (Admin)
 router.post('/', authenticate, authorize('Quản trị'), createWeeklySummary);

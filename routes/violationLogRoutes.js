@@ -5,6 +5,7 @@ const {
   getViolationLogById,
   createViolationLog,
   updateViolationLog,
+  updateViolationStatus,
   approveViolation,
   rejectViolation,
   reopenViolation,
@@ -40,6 +41,14 @@ router.put(
   authorize('Cờ đỏ', 'Giáo viên chủ nhiệm', 'Quản trị'),
   validateUpdateViolationLog,
   updateViolationLog
+);
+
+// Cập nhật trạng thái vi phạm (GVCN, Admin)
+router.patch(
+  '/:id/status',
+  authenticate,
+  authorize('Giáo viên chủ nhiệm', 'Quản trị'),
+  updateViolationStatus
 );
 
 // Duyệt vi phạm (GVCN, Admin)
