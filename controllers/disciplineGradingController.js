@@ -410,25 +410,25 @@ exports.startGrading = async (req, res) => {
     } else {
       rawConductItems = [
         { name: 'Sinh hoạt dưới cờ', applicableDays: [2] },
-        { name: 'Truy bài', applicableDays: [3, 4, 5, 6, 7] },
-        { name: 'Đeo thẻ', applicableDays: [2, 3, 4, 5, 6, 7] },
-        { name: 'Vệ sinh lớp + khu vực', applicableDays: [2, 3, 4, 5, 6, 7] },
-        { name: 'Đi học đúng giờ', applicableDays: [2, 3, 4, 5, 6, 7] },
-        { name: 'Nếp sống văn minh', applicableDays: [2, 3, 4, 5, 6, 7] },
+        { name: 'Truy bài', applicableDays: [3, 4, 5, 6] },
+        { name: 'Đeo thẻ', applicableDays: [2, 3, 4, 5, 6] },
+        { name: 'Vệ sinh lớp + khu vực', applicableDays: [2, 3, 4, 5, 6] },
+        { name: 'Đi học đúng giờ', applicableDays: [2, 3, 4, 5, 6] },
+        { name: 'Nếp sống văn minh', applicableDays: [2, 3, 4, 5, 6] },
       ];
     }
     
-    // Support Monday through Saturday (day 2-7)
+    // Support Monday through Friday (day 2-6)
     const conductItems = rawConductItems.map(item => ({
       ...item,
-      applicableDays: (item.applicableDays || [2, 3, 4, 5, 6, 7]).filter(day => day >= 2 && day <= 7)
+      applicableDays: (item.applicableDays || [2, 3, 4, 5, 6]).filter(day => day >= 2 && day <= 6)
     }));
     
     const maxPointsPerItem = schoolYear.conductConfiguration?.maxPointsPerItem || 5;
 
     // Build items with default scores (full marks)
     const items = conductItems.map((item, index) => {
-      const validDays = item.applicableDays.length > 0 ? item.applicableDays : [2, 3, 4, 5, 6, 7];
+      const validDays = item.applicableDays.length > 0 ? item.applicableDays : [2, 3, 4, 5, 6];
       const dayScores = validDays.map(day => ({
         day,
         violations: 0,

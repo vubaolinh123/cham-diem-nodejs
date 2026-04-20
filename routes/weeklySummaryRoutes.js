@@ -9,6 +9,7 @@ const {
   updateWeeklySummary,
   deleteWeeklySummary,
   unlockWeeklySummary,
+  autoGenerateAllWeeklySummaries,
 } = require('../controllers/weeklySummaryController');
 const { authenticate, authorize } = require('../middlewares/auth');
 
@@ -31,6 +32,9 @@ router.post('/', authenticate, authorize('Quản trị'), createWeeklySummary);
 
 // Tạo/Cập nhật tổng hợp tuần tự động (Admin)
 router.post('/generate', authenticate, authorize('Quản trị'), generateWeeklySummary);
+
+// Tự động tạo tổng hợp tuần cho tất cả các tuần+lop có điểm (Admin)
+router.post('/auto-generate-all', authenticate, authorize('Quản trị'), autoGenerateAllWeeklySummaries);
 
 // Cập nhật tổng hợp tuần (Admin)
 router.put('/:id', authenticate, authorize('Quản trị'), updateWeeklySummary);

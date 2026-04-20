@@ -120,9 +120,9 @@ const schoolYearSchema = new mongoose.Schema(
       // Số ngày áp dụng trong tuần
       daysPerWeek: {
         type: Number,
-        default: 6,
+        default: 5,
         min: 1,
-        max: 7,
+        max: 6,
       },
       // Danh sách các mục nề nếp
       items: [
@@ -131,12 +131,12 @@ const schoolYearSchema = new mongoose.Schema(
             type: String,
             required: true,
           },
-          // Các ngày áp dụng (2=Thứ 2, 3=Thứ 3, 4=Thứ 4, 5=Thứ 5, 6=Thứ 6, 7=Thứ 7)
+          // Các ngày áp dụng (2=Thứ 2, 3=Thứ 3, 4=Thứ 4, 5=Thứ 5, 6=Thứ 6)
           applicableDays: [
             {
               type: Number,
               min: 2,
-              max: 7,
+              max: 6,
             },
           ],
           // Thứ tự hiển thị

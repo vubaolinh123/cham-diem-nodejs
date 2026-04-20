@@ -149,9 +149,10 @@ const weeklySummarySchema = new mongoose.Schema(
       flag: {
         type: String,
         enum: {
-          values: ['Cờ đỏ', 'Cờ xanh', 'Cờ vàng', 'Không xếp cờ'],
-          message: 'Cờ phải là: Cờ đỏ, Cờ xanh, Cờ vàng, hoặc Không xếp cờ',
+          values: ['Cờ đỏ', 'Cờ xanh', 'Cờ vàng', 'Không xếp cờ', 'Chưa xếp cờ'],
+          message: 'Cờ phải là: Cờ đỏ, Cờ xanh, Cờ vàng, Không xếp cờ, hoặc Chưa xếp cờ',
         },
+        default: 'Chưa xếp cờ',
       },
       // Tổng điểm (nề nếp + học tập + thưởng)
       totalScore: {

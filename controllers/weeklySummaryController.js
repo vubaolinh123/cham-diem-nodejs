@@ -157,7 +157,7 @@ const generateWeeklySummary = async (req, res, next) => {
     const totalScore = conductData.total + academicData.total + bonusData.total;
     // Flag is now manually assigned by admin
     const classification = {
-      flag: null,
+      flag: 'Chưa xếp cờ',
       totalScore,
       ranking: 0,
     };
@@ -303,7 +303,7 @@ const aggregateViolations = (violations) => {
  */
 const calculateBonuses = (conductData, academicData, bonusConfig) => {
   const goodDayBonus = academicData.goodDays * bonusConfig.goodDayBonus;
-  const goodWeekBonus = academicData.goodDays === 6 ? bonusConfig.goodWeekBonus : 0;
+  const goodWeekBonus = academicData.goodDays === 5 ? bonusConfig.goodWeekBonus : 0;
 
   return {
     goodDayBonus,
@@ -498,7 +498,7 @@ const createWeeklySummary = async (req, res, next) => {
     }
 
     // Flag is now manually assigned by admin, not auto-calculated
-    const classification = { flag: null, totalScore: conductTotal, percentage };
+    const classification = { flag: 'Chưa xếp cờ', totalScore: conductTotal, percentage };
 
     const summary = new WeeklySummary({
       week,
@@ -673,6 +673,80 @@ const unlockWeeklySummary = async (req, res, next) => {
   }
 };
 
+/**
+ * Tự động tạo tổng hợp tuần cho tất cả các tuần+lop có điểm nề nếp hoặc học tập
+ * @route POST /api/weekly-summaries/auto-generate-all
+ * @access Admin
+ */
+const autoGenerateAllWeeklySummaries = async (req, res, next) => {
+  try {
+    const { updateExisting = false } = req.body;
+
+    // Find all week+class pairs that have DisciplineGrading or ClassAcademicGrading
+    const disciplineGradings = await DisciplineGrading.find({}, 'week class');
+    const academicGradings = await ClassAcademicGrading.find({}, 'week class');
+
+    // Combine unique week+class pairs
+    const weekClassPairs = new Map();
+    [...disciplineGradings, ...academicGradings].forEach((doc) => {
+      const key = `${doc.week}_${doc.class}`;
+      if (!weekClassPairs.has(key)) {
+        weekClassPairs.set(key, { week: doc.week.toString(), class: doc.class.toString() });
+      }
+    });
+
+    if (weekClassPairs.size === 0) {
+      return sendResponse(res, 200, true, 'Không có dữ liệu điểm nề nếp hoặc học tập để tổng hợp', {
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        summaries: [],
+      });
+    }
+
+    // Use the helper to generate/update summaries
+    const { updateWeeklySummary } = require('../utils/weeklySummaryHelper');
+    const results = { created: 0, updated: 0, skipped: 0, summaries: [] };
+
+    for (const [, pair] of weekClassPairs) {
+      try {
+        // Check if summary already exists
+        const existing = await WeeklySummary.findOne({ week: pair.week, class: pair.class });
+
+        if (existing && !updateExisting) {
+          // Skip if already exists and updateExisting is false
+          const populated = await WeeklySummary.findById(existing._id)
+            .populate('week', 'weekNumber startDate endDate')
+            .populate('class', 'name grade');
+          results.skipped++;
+          results.summaries.push(populated);
+          continue;
+        }
+
+        // Generate/update using the helper
+        const summary = await updateWeeklySummary(pair.week, pair.class, req.userId);
+        if (summary) {
+          const populated = await WeeklySummary.findById(summary._id)
+            .populate('week', 'weekNumber startDate endDate')
+            .populate('class', 'name grade');
+          if (existing) {
+            results.updated++;
+          } else {
+            results.created++;
+          }
+          results.summaries.push(populated);
+        }
+      } catch (err) {
+        console.error(`autoGenerateAllWeeklySummaries: Error for week ${pair.week}, class ${pair.class}:`, err.message);
+      }
+    }
+
+    return sendResponse(res, 200, true, `Tổng hợp tuần thành công: ${results.created} mới, ${results.updated} cập nhật, ${results.skipped} bỏ qua`, results);
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllWeeklySummaries,
   getWeeklySummaryById,
@@ -682,6 +756,7 @@ module.exports = {
   updateWeeklySummary,
   deleteWeeklySummary,
   unlockWeeklySummary,
+  autoGenerateAllWeeklySummaries,
 };
 
 

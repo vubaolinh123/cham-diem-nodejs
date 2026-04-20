@@ -91,7 +91,7 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
 
     if (conductScores.maxPossible > 0) {
       // Calculate average based on actual number of days with scores
-      const dayCount = disciplineGrading?.items?.[0]?.applicableDays?.length || 6;
+      const dayCount = disciplineGrading?.items?.[0]?.applicableDays?.length || 5;
       conductScores.average = Math.round(conductScores.total / dayCount);
     }
 
@@ -136,7 +136,7 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     const bonusConfig = schoolYear.bonusConfiguration || {};
     const bonuses = {
       goodDayBonus: academicScores.goodDays * (bonusConfig.goodDayBonus || 0),
-      goodWeekBonus: academicScores.goodDays >= 6 ? (bonusConfig.goodWeekBonus || 0) : 0,
+      goodWeekBonus: academicScores.goodDays >= 5 ? (bonusConfig.goodWeekBonus || 0) : 0,
       total: 0,
     };
     bonuses.total = bonuses.goodDayBonus + bonuses.goodWeekBonus;
@@ -220,7 +220,7 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     // Get classification thresholds from school year
     // Flag is now manually assigned by admin, no auto-calculation
     // Keep existing flag if summary exists, otherwise set null
-    const existingFlag = (await WeeklySummary.findOne({ week: weekId, class: classId }))?.classification?.flag || null;
+    const existingFlag = (await WeeklySummary.findOne({ week: weekId, class: classId }))?.classification?.flag || 'Chưa xếp cờ';
     const flag = existingFlag;
 
     const classification = {
@@ -238,7 +238,7 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
       // Always update scores data, but preserve status and manually-assigned flag
       // This ensures the duyệt/khóa tuần page always shows the latest data
       const preservedStatus = summary.status;
-      const preservedFlag = summary.classification?.flag || null;
+      const preservedFlag = summary.classification?.flag || 'Chưa xếp cờ';
 
       summary.conductScores = conductScores;
       summary.academicScores = academicScores;
