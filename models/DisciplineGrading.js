@@ -181,6 +181,12 @@ disciplineGradingSchema.pre('save', function (next) {
   // Tính tổng điểm tuần
   this.totalWeeklyScore = this.items.reduce((sum, item) => sum + item.totalScore, 0);
 
+  // Recompute maxPossibleScore từ items × applicableDays để tránh stale default
+  const computedMax = this.calculateMaxPossibleScore();
+  if (computedMax > 0) {
+    this.maxPossibleScore = computedMax;
+  }
+
   // Tính phần trăm
   if (this.maxPossibleScore > 0) {
     this.percentage = Math.round((this.totalWeeklyScore / this.maxPossibleScore) * 100);

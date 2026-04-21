@@ -73,11 +73,27 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     }).populate('violationType', 'name category severity defaultPenalty');
 
     // Calculate conduct scores
+    // Recalculate maxPossible from items to avoid stale DB values
+    const calculatedConductMaxPossible = disciplineGrading?.items?.reduce(
+      (sum, item) => sum + (item.maxScore || 5) * (item.applicableDays?.length || 0), 0
+    ) || 0;
+    // Recalculate conductTotal from items to avoid stale DB values
+    // Prefer item.totalScore; fall back to summing dayScores if totalScore is missing
+    const calculatedConductTotal = disciplineGrading?.items?.reduce((sum, item) => {
+      const itemTotal = (typeof item.totalScore === 'number')
+        ? item.totalScore
+        : (item.dayScores?.reduce((ds, s) => ds + (s.score || 0), 0) || 0);
+      return sum + itemTotal;
+    }, 0) || 0;
+    const conductTotal = calculatedConductTotal || (disciplineGrading?.totalWeeklyScore || 0);
+    const conductMaxPossible = calculatedConductMaxPossible > 0 ? calculatedConductMaxPossible : (disciplineGrading?.maxPossibleScore || 100);
+    const conductPercentage = conductMaxPossible > 0 ? Math.round((conductTotal / conductMaxPossible) * 100) : 0;
+
     const conductScores = {
-      total: disciplineGrading?.totalWeeklyScore || 0,
+      total: conductTotal,
       average: 0,
-      maxPossible: disciplineGrading?.maxPossibleScore || 100,
-      percentage: disciplineGrading?.percentage || 0,
+      maxPossible: conductMaxPossible,
+      percentage: conductPercentage,
       byDay: [],
       byItem: disciplineGrading?.items?.map(item => ({
         itemName: item.itemName,
@@ -96,8 +112,15 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     }
 
     // Calculate academic scores
+    // finalWeeklyScore ALREADY includes goodDayBonus and goodWeekBonus from ClassAcademicGrading pre-save hook
+    // So we use it as-is and do NOT add bonuses again
+    const academicBaseScore = academicGrading?.averageScore || 0;
+    const academicGoodDayBonus = academicGrading?.goodDayBonus || 0;
+    const academicGoodWeekBonus = academicGrading?.goodWeekBonus || 0;
+    const academicTotal = academicGrading?.finalWeeklyScore || 0;
+
     const academicScores = {
-      total: academicGrading?.finalWeeklyScore || 0,
+      total: academicTotal,
       average: academicGrading?.averageScore || 0,
       goodDays: academicGrading?.goodDayCount || 0,
       byDay: academicGrading?.dayGradings?.map(day => ({
@@ -128,23 +151,13 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
       });
     }
 
-    // goodDays is already in the model, no need to recalculate from array if trust model
-    // But helper implementation recalculates it. Model has goodDayCount.
-    // academicScores.goodDays = academicScores.byDay.filter(d => d.isGoodDay).length; // redundant if taking from model
-
-    // goodWeekBonus threshold: if school has 5 days (T2-T6), need 5 good days;
-    // if school has 4 days (T2-T5), need 4 good days
-    const schoolDayCount = disciplineGrading?.items?.[0]?.applicableDays?.length || 5;
-    const goodWeekThreshold = schoolDayCount >= 5 ? 5 : schoolDayCount;
-    
-    // Calculate bonuses based on school year config
-    const bonusConfig = schoolYear.bonusConfiguration || {};
+    // Bonuses are already included in finalWeeklyScore (from ClassAcademicGrading pre-save hook)
+    // So we record them for display purposes only, NOT adding them again to totalScore
     const bonuses = {
-      goodDayBonus: academicScores.goodDays * (bonusConfig.goodDayBonus || 0),
-      goodWeekBonus: academicScores.goodDays >= goodWeekThreshold ? (bonusConfig.goodWeekBonus || 0) : 0,
-      total: 0,
+      goodDayBonus: academicGoodDayBonus,
+      goodWeekBonus: academicGoodWeekBonus,
+      total: academicGoodDayBonus + academicGoodWeekBonus,
     };
-    bonuses.total = bonuses.goodDayBonus + bonuses.goodWeekBonus;
 
     // Calculate violations summary and penalties
     let violationPenaltyTotal = 0;
@@ -208,19 +221,34 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
       .slice(0, 5); // Top 5 violators
 
     // Calculate total score and classification
-    // Calculate total score and classification
-    // Formula: Total = Conduct Score + Academic Score + Bonuses - Violation Penalty
-    // All scores are in their original scales (not normalized)
+    // Formula: Total = Conduct Score + Academic Score - Violation Penalty
+    // Bonuses are ALREADY included in academicScore (finalWeeklyScore = averageScore + goodDayBonus + goodWeekBonus)
+    // So we do NOT add bonuses again here
     const conductScoreValue = conductScores.total || 0;
     const academicScoreValue = academicScores.total || 0;
-    const bonusValue = bonuses.total || 0;
     const penaltyDeduction = violationPenaltyTotal || 0;
     
-    // Total = Conduct (0-maxPossible) + Academic (0-100) + Bonuses - Penalties
-    const totalScore = conductScoreValue + academicScoreValue + bonusValue - penaltyDeduction;
+    // Total = Conduct (0-conductMaxPossible) + Academic (0-academicMaxPossible) - Penalties
+    const totalScore = conductScoreValue + academicScoreValue - penaltyDeduction;
     
-    // Calculate percentage relative to max possible score
-    const maxTotal = (conductScores.maxPossible || 100) + 100; // conduct max + academic max (always 100)
+    // Calculate academic max possible score
+    // academicScore max = maxAverageScore + maxBonus
+    // maxAverageScore = 20 (all periods excellent), maxBonus depends on goodWeek or goodDays
+    // For a good week: 20 + goodWeekBonus (e.g. 80)
+    // For non-good week: 20 + goodDays * goodDayBonus (e.g. 5 * 20 = 100, max 100)
+    // We use the actual academic total as-is since it's already computed with bonuses
+    // The max possible = maxAverage(20) + maxBonus(from school year config)
+    const bonusConfig = schoolYear.bonusConfiguration || {};
+    const schoolDayCount = disciplineGrading?.items?.[0]?.applicableDays?.length || 5;
+    const goodWeekThreshold = schoolDayCount >= 5 ? 5 : schoolDayCount;
+    const maxGoodDayBonus = (bonusConfig.goodDayBonus || 0) * schoolDayCount;
+    const maxGoodWeekBonus = bonusConfig.goodWeekBonus || 0;
+    // Academic max: use the greater of goodWeekBonus vs maxGoodDayBonus since only one applies
+    const academicMaxBonus = Math.max(maxGoodDayBonus, maxGoodWeekBonus);
+    const academicMaxPossible = 20 + academicMaxBonus; // max average (20) + max bonus
+    
+    // Calculate max total possible score
+    const maxTotal = (conductScores.maxPossible || 0) + academicMaxPossible;
     const percentage = maxTotal > 0 ? Math.round((totalScore / maxTotal) * 100) : 0;
     // Get classification thresholds from school year
     // Flag is now manually assigned by admin, no auto-calculation

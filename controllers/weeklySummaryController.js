@@ -172,116 +172,27 @@ const createWeeklySummary = async (req, res, next) => {
       return sendError(res, 400, 'Tổng hợp tuần cho lớp này đã tồn tại');
     }
 
-    // === TỰ ĐỘNG TỔNG HỢP DỮ LIỆU ===
-    
-    // 1. Lấy dữ liệu Chấm Điểm Nề Nếp (DisciplineGrading)
-    const disciplineGrading = await DisciplineGrading.findOne({
-      week: week,
-      class: classId,
-    });
+    // Delegate to the helper to ensure single source of truth for score calculations
+    // (conduct from items × applicableDays, academic from finalWeeklyScore, penalty from violations,
+    //  totalScore = conduct + academic - penalty, maxTotalScore = conductMax + academicMax)
+    const { updateWeeklySummary: helperUpdateWeeklySummary } = require('../utils/weeklySummaryHelper');
+    const summary = await helperUpdateWeeklySummary(week, classId, req.userId);
 
-    // 2. Lấy dữ liệu Chấm Điểm Học Tập (ClassAcademicGrading)
-    const academicGrading = await ClassAcademicGrading.findOne({
-      week: week,
-      class: classId,
-    });
-
-    // 3. Lấy dữ liệu vi phạm
-    const violations = await ViolationLog.find({
-      week: week,
-      class: classId,
-    });
-
-    // 4. Tính toán conductScores từ DisciplineGrading
-    let conductScoresData = { total: 0, average: 0, byDay: [], byItem: [] };
-    if (disciplineGrading) {
-      conductScoresData = {
-        total: disciplineGrading.totalWeeklyScore || 0,
-        average: disciplineGrading.percentage || 0,
-        byDay: disciplineGrading.items?.flatMap(item => 
-          item.dayScores?.map(ds => ({
-            date: null,
-            dayOfWeek: ds.day,
-            score: ds.score || 0,
-          })) || []
-        ) || [],
-        byItem: disciplineGrading.items?.map(item => ({
-          itemName: item.itemName,
-          totalScore: item.totalScore || 0,
-          maxScore: item.maxScore * (item.applicableDays?.length || 1),
-          percentage: item.totalScore ? Math.round((item.totalScore / (item.maxScore * (item.applicableDays?.length || 1))) * 100) : 0,
-        })) || [],
-      };
+    if (!summary) {
+      return sendError(res, 404, 'Không tìm thấy dữ liệu điểm nề nếp hoặc học tập cho tuần và lớp này');
     }
 
-    // 5. Tính toán academicScores từ ClassAcademicGrading
-    let academicScoresData = { total: 0, average: 0, goodDays: 0, byDay: [], lessonStatistics: { excellent: 0, good: 0, average: 0, poor: 0, failing: 0, total: 0 } };
-    if (academicGrading) {
-      const dayGradings = academicGrading.dayGradings || [];
-      const totalScore = dayGradings.reduce((sum, d) => sum + (d.dailyScore || 0), 0);
-      const goodDays = dayGradings.filter(d => d.isGoodDay).length;
-      const lessonStats = { excellent: 0, good: 0, average: 0, poor: 0, failing: 0, total: 0 };
-      
-      dayGradings.forEach(d => {
-        lessonStats.excellent += d.excellent || 0;
-        lessonStats.good += d.good || 0;
-        lessonStats.average += d.average || 0;
-        lessonStats.poor += d.poor || 0;
-        lessonStats.failing += d.bad || 0;
-      });
-      lessonStats.total = lessonStats.excellent + lessonStats.good + lessonStats.average + lessonStats.poor + lessonStats.failing;
-
-      academicScoresData = {
-        total: academicGrading.finalWeeklyScore || totalScore,
-        average: academicGrading.averageScore || 0,
-        goodDays: academicGrading.goodDayCount || goodDays,
-        byDay: dayGradings.map(d => ({
-          date: null,
-          dayOfWeek: d.day,
-          score: d.dailyScore || 0,
-          isGoodDay: d.isGoodDay || false,
-        })),
-        lessonStatistics: lessonStats,
-      };
-    }
-
-    // 6. Tính toán violationData
-    const violationData = {
-      total: violations.length,
-      approved: violations.filter(v => v.status === 'Đã duyệt').length,
-      pending: violations.filter(v => v.status === 'Chờ duyệt').length,
-      byType: [],
-      topViolators: [],
-    };
-
-    // 7. Tính tổng điểm - Cờ do admin chọn thủ công
-    const conductTotal = conductScoresData.total;
-    const maxPossible = disciplineGrading?.maxPossibleScore || 100;
-    const percentage = maxPossible > 0 ? Math.round((conductTotal / maxPossible) * 100) : 0;
-
-    // Lấy status từ DisciplineGrading nếu có và đã khóa
+    // Determine final status: prefer explicit status from request; otherwise inherit lock from DisciplineGrading
     let finalStatus = status || 'Nháp';
-    if (disciplineGrading && disciplineGrading.status === 'Khóa') {
+    const disciplineGrading = await DisciplineGrading.findOne({ week, class: classId });
+    if (!status && disciplineGrading && disciplineGrading.status === 'Khóa') {
       finalStatus = 'Khóa';
     }
 
-    // Flag is now manually assigned by admin, not auto-calculated
-    const classification = { flag: 'Chưa xếp cờ', totalScore: conductTotal, percentage };
-
-    const summary = new WeeklySummary({
-      week,
-      class: classId,
-      conductScores: conductScoresData,
-      academicScores: academicScoresData,
-      bonuses: { goodDayBonus: 0, goodWeekBonus: 0, total: 0 },
-      violations: violationData,
-      classification,
-      status: finalStatus,
-      notes,
-      createdBy: req.userId,
-    });
-
+    summary.status = finalStatus;
+    if (notes !== undefined) summary.notes = notes;
     await summary.save();
+
     await summary.populate([
       { path: 'week', select: 'weekNumber startDate endDate' },
       { path: 'class', select: 'name grade' },
