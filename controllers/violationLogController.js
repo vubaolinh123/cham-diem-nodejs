@@ -511,6 +511,56 @@ const deleteViolationLog = async (req, res, next) => {
 };
 
 /**
+ * Đếm số vi phạm theo từng học sinh trong một lớp
+ * Trả về object { [studentId]: { total, approved } }
+ * Mặc định lọc theo class; có thể truyền thêm week để giới hạn theo tuần.
+ * @route GET /api/violation-logs/count-by-student
+ * @access Authenticated
+ */
+const countByStudent = async (req, res, next) => {
+  try {
+    const { class: classId, week } = req.query;
+
+    if (!classId) {
+      return sendError(res, 400, 'Thiếu tham số class');
+    }
+
+    const mongoose = require('mongoose');
+    const match = { class: new mongoose.Types.ObjectId(classId) };
+    if (week) match.week = new mongoose.Types.ObjectId(week);
+
+    const aggResult = await ViolationLog.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: '$student',
+          total: { $sum: 1 },
+          approved: {
+            $sum: { $cond: [{ $eq: ['$status', 'Đã duyệt'] }, 1, 0] },
+          },
+        },
+      },
+    ]);
+
+    const counts = {};
+    aggResult.forEach((row) => {
+      if (row._id) {
+        counts[row._id.toString()] = {
+          total: row.total,
+          approved: row.approved,
+        };
+      }
+    });
+
+    return sendResponse(res, 200, true, 'Lấy số vi phạm theo học sinh thành công', {
+      counts,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Kiểm tra vi phạm trùng lặp
  * Quy tắc: cùng học sinh + cùng loại lỗi + cùng ngày
  */
@@ -541,5 +591,6 @@ module.exports = {
   rejectViolation,
   reopenViolation,
   deleteViolationLog,
+  countByStudent,
 };
 

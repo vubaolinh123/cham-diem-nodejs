@@ -10,6 +10,7 @@ const {
   rejectViolation,
   reopenViolation,
   deleteViolationLog,
+  countByStudent,
 } = require('../controllers/violationLogController');
 const { authenticate, authorize } = require('../middlewares/auth');
 const { validateCreateViolationLog, validateUpdateViolationLog } = require('../middlewares/validation');
@@ -21,6 +22,10 @@ const { validateCreateViolationLog, validateUpdateViolationLog } = require('../m
 
 // Lấy tất cả vi phạm (Authenticated)
 router.get('/', authenticate, getAllViolationLogs);
+
+// Đếm số vi phạm theo từng học sinh trong một lớp (Authenticated)
+// IMPORTANT: must be before /:id route so Express doesn't capture 'count-by-student' as :id
+router.get('/count-by-student', authenticate, countByStudent);
 
 // Lấy vi phạm theo ID (Authenticated)
 router.get('/:id', authenticate, getViolationLogById);

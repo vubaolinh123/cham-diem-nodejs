@@ -9,12 +9,14 @@ const { sendResponse, sendError } = require('../utils/helpers');
 
 /**
  * Lấy tất cả tổng hợp tuần
+ * Tự động refresh các bản ghi có aggregate fields trống/cũ (conductScores/academicScores/violations)
+ * bằng cách gọi helper updateWeeklySummary trước khi trả về.
  * @route GET /api/weekly-summaries
  * @access Authenticated
  */
 const getAllWeeklySummaries = async (req, res, next) => {
   try {
-    const { week, class: classId, page = 1, limit = 50 } = req.query;
+    const { week, class: classId, page = 1, limit = 50, refresh } = req.query;
 
     const filter = {};
     if (week) filter.week = week;
@@ -22,6 +24,33 @@ const getAllWeeklySummaries = async (req, res, next) => {
 
     const skip = (page - 1) * limit;
 
+    // First pass: load summaries (raw, not yet populated) to detect stale records
+    const rawSummaries = await WeeklySummary.find(filter)
+      .skip(skip)
+      .limit(parseInt(limit))
+      .sort({ week: -1 });
+
+    // Detect stale records: aggregate fields all zero/missing while there is no Khóa lock
+    // Refresh via the helper (single source of truth). Skip locked summaries to preserve their snapshot.
+    const { updateWeeklySummary: refreshHelper } = require('../utils/weeklySummaryHelper');
+    const forceRefresh = refresh === 'true' || refresh === '1';
+    for (const s of rawSummaries) {
+      const isStale =
+        forceRefresh ||
+        ((!s.conductScores || !s.conductScores.total) &&
+          (!s.academicScores || !s.academicScores.total) &&
+          (!s.violations || !s.violations.total));
+      if (isStale && s.status !== 'Khóa') {
+        try {
+          await refreshHelper(s.week, s.class, req.userId);
+        } catch (refreshErr) {
+          // Non-fatal: log and continue
+          console.warn(`getAllWeeklySummaries: refresh failed for ${s._id}:`, refreshErr.message);
+        }
+      }
+    }
+
+    // Second pass: re-fetch with populate so the refreshed values are returned
     const summaries = await WeeklySummary.find(filter)
       .populate('week', 'weekNumber startDate endDate')
       .populate('class', 'name grade')
