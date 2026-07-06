@@ -105,11 +105,16 @@ const refreshAccessToken = async (req, res, next) => {
       return sendError(res, 401, 'Invalid refresh token');
     }
 
-    // Generate new access token
+    // Generate new access token (vĩnh viễn theo cơ chế mới)
     const newAccessToken = jwtUtils.generateAccessToken(user._id, user.role);
+    // Xoay vòng refresh token để client luôn có token khớp với DB
+    const newRefreshToken = jwtUtils.generateRefreshToken(user._id);
+    await user.removeRefreshToken(refreshToken);
+    await user.addRefreshToken(newRefreshToken);
 
     return sendResponse(res, 200, true, 'Access token refreshed', {
       accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
     });
   } catch (error) {
     next(error);
@@ -121,10 +126,17 @@ const logout = async (req, res, next) => {
     const { refreshToken } = req.body;
     const userId = req.userId;
 
-    if (refreshToken) {
-      const user = await User.findById(userId);
-      if (user) {
+    const user = await User.findById(userId);
+    if (user) {
+      if (refreshToken) {
+        // Xóa đúng refresh token được gửi lên
         await user.removeRefreshToken(refreshToken);
+      } else {
+        // Không có refreshToken trong body (client không lưu) => xóa sạch mọi
+        // refresh token của user này để đảm bảo session bị đóng hoàn toàn
+        // phía server. Token JWT không thể thu hồi, nhưng refresh token thì có.
+        user.refreshTokens = [];
+        await user.save();
       }
     }
 

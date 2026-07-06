@@ -2,18 +2,19 @@ const jwt = require('jsonwebtoken');
 const config = require('../config/environment');
 
 const generateAccessToken = (userId, role) => {
+  // Token vĩnh viễn: không đặt expiresIn.
+  // Token chỉ bị hủy khi user chủ động bấm đăng xuất (xóa khỏi DB + xóa client state).
   return jwt.sign(
     { userId, role },
-    config.JWT_SECRET,
-    { expiresIn: config.JWT_EXPIRE }
+    config.JWT_SECRET
   );
 };
 
 const generateRefreshToken = (userId) => {
+  // Refresh token cũng vĩnh viễn, tương ứng access token.
   return jwt.sign(
     { userId },
-    config.JWT_REFRESH_SECRET,
-    { expiresIn: config.JWT_REFRESH_EXPIRE }
+    config.JWT_REFRESH_SECRET
   );
 };
 
