@@ -58,12 +58,14 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     const disciplineGrading = await DisciplineGrading.findOne({
       week: weekId,
       class: classId,
+      schoolYear: week.schoolYear,
     });
 
     // Get ClassAcademicGrading data
     const academicGrading = await ClassAcademicGrading.findOne({
       week: weekId,
       class: classId,
+      schoolYear: week.schoolYear,
     });
 
     // Get ViolationLog data
@@ -253,7 +255,7 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     // Get classification thresholds from school year
     // Flag is now manually assigned by admin, no auto-calculation
     // Keep existing flag if summary exists, otherwise set null
-    const existingFlag = (await WeeklySummary.findOne({ week: weekId, class: classId }))?.classification?.flag || 'Chưa xếp cờ';
+    const existingFlag = (await WeeklySummary.findOne({ week: weekId, class: classId, schoolYear: week.schoolYear }))?.classification?.flag || 'Chưa xếp cờ';
     const flag = existingFlag;
 
     const classification = {
@@ -266,7 +268,7 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
     };
 
     // Find existing or create new summary
-    let summary = await WeeklySummary.findOne({ week: weekId, class: classId });
+    let summary = await WeeklySummary.findOne({ week: weekId, class: classId, schoolYear: week.schoolYear });
 
     if (summary) {
       // Always update scores data, but preserve status and manually-assigned flag
@@ -284,12 +286,15 @@ const updateWeeklySummary = async (weekId, classId, userId = null) => {
       };
       // Restore the original status (don't auto-change from Duyệt/Khóa)
       summary.status = preservedStatus;
+      // Backfill schoolYear if missing from old record
+      summary.schoolYear = week.schoolYear;
       if (userId) summary.updatedBy = userId;
     } else {
       // Create new
       summary = new WeeklySummary({
         week: weekId,
         class: classId,
+        schoolYear: week.schoolYear,
         conductScores,
         academicScores,
         bonuses,

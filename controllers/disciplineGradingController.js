@@ -22,31 +22,49 @@ exports.getAll = async (req, res) => {
     const filter = {};
 
     if (classId) filter.class = classId;
-    
+
+    // Resolve `schoolYear` early so the (weekNumber → ObjectId) resolution
+    // is always scoped to a specific school year. If the client did not
+    // pass schoolYear, fall back to the active one.
+    let resolvedSchoolYear = schoolYear;
+    if (!resolvedSchoolYear) {
+      const active = await SchoolYear.findOne({ status: 'Hoạt động' }).sort({ updatedAt: -1 }).select('_id');
+      if (active) resolvedSchoolYear = active._id;
+    }
+    if (resolvedSchoolYear) filter.schoolYear = resolvedSchoolYear;
+
     if (week) {
-        // If week is a valid ObjectId, use it directly
+        // If week is a valid ObjectId, use it directly (and pin schoolYear too)
         if (week.match(/^[0-9a-fA-F]{24}$/)) {
             filter.week = week;
+            // Defense in depth: confirm the supplied week belongs to the
+            // resolved school year, otherwise the result set is empty.
+            const weekDoc = await Week.findById(week).select('schoolYear');
+            if (weekDoc && resolvedSchoolYear &&
+                weekDoc.schoolYear.toString() !== resolvedSchoolYear.toString()) {
+                return res.status(200).json({ success: true, count: 0, data: [] });
+            }
         } else {
-            // Otherwise assume it's a weekNumber
-            const weekDoc = await Week.findOne({ weekNumber: parseInt(week), schoolYear: req.schoolYear }); // Assuming we have global schoolYear or need to fetch active
-            // Better strategy: just populate and filter in memory if needed, OR find Week first if week is not ObjectId
-            // Since we might not have schoolYear in req context easily here without middleware, 
-            // let's try to find any week with that number (or rely on frontend sending ID)
-            // But user reported "Cast to ObjectId failed for value "1"", so frontend sends "1".
-            // Let's find the week ID for "1".
-            // We need current school year to be precise, skipping for now and assuming unique week number or just finding one.
-            const weekObj = await Week.findOne({ weekNumber: parseInt(week) });
+            // Otherwise treat `week` as weekNumber. We MUST scope by schoolYear
+            // to avoid resolving to a week from a different year (which is the
+            // root cause of the "no data" / "đã tồn tại" mismatch).
+            if (!resolvedSchoolYear) {
+                // No schoolYear context at all → return empty rather than
+                // picking an arbitrary week.
+                return res.status(200).json({ success: true, count: 0, data: [] });
+            }
+            const weekObj = await Week.findOne({
+                weekNumber: parseInt(week),
+                schoolYear: resolvedSchoolYear,
+            });
             if (weekObj) {
                 filter.week = weekObj._id;
             } else {
-                // Return empty if week not found
                 return res.status(200).json({ success: true, count: 0, data: [] });
             }
         }
-    } 
+    }
 
-    if (schoolYear) filter.schoolYear = schoolYear;
     if (status) filter.status = status;
     if (semester) filter.semester = parseInt(semester);
     if (flag) filter.flag = flag;
@@ -104,9 +122,22 @@ exports.getByClassAndWeek = async (req, res) => {
   try {
     const { classId, weekId } = req.params;
 
+    // Look up the week's schoolYear so we can disambiguate. The (class, week)
+    // pair is unique only within a single school year, since `week` ObjectId
+    // is per-school-year. Without this, requests for a week from a different
+    // school year would either return the wrong record or 404 unpredictably.
+    const weekDoc = await Week.findById(weekId).select('schoolYear');
+    if (!weekDoc) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tuần không tìm thấy',
+      });
+    }
+
     let disciplineGrading = await DisciplineGrading.findOne({
       class: classId,
       week: weekId,
+      schoolYear: weekDoc.schoolYear,
     }).populate(populateOptions);
 
     if (!disciplineGrading) {
@@ -114,45 +145,6 @@ exports.getByClassAndWeek = async (req, res) => {
         success: false,
         message: 'Không tìm thấy dữ liệu',
       });
-    }
-
-    // Auto-fix: ensure day 6 (Thứ 6) is present in applicableDays and dayScores
-    // for items that should apply on all weekdays (legacy data may lack day 6)
-    const maxPointsPerItem = disciplineGrading.maxPointsPerItem || disciplineGrading.items?.[0]?.maxScore || 5;
-    let needsSave = false;
-    
-    if (disciplineGrading.items && Array.isArray(disciplineGrading.items)) {
-      for (const item of disciplineGrading.items) {
-        // Skip Monday-only items like "Sinh hoạt dưới cờ"
-        const isMondayOnly = item.applicableDays?.length === 1 && item.applicableDays.includes(2);
-        
-        if (!isMondayOnly && item.applicableDays && !item.applicableDays.includes(6)) {
-          // Add day 6 to applicableDays
-          item.applicableDays.push(6);
-          item.applicableDays.sort((a, b) => a - b);
-          
-          // Add day 6 to dayScores with full marks
-          const day6Exists = item.dayScores?.some(ds => ds.day === 6);
-          if (!day6Exists) {
-            if (!item.dayScores) item.dayScores = [];
-            item.dayScores.push({
-              day: 6,
-              violations: 0,
-              score: item.maxScore || maxPointsPerItem,
-              violatingStudentIds: [],
-            });
-            item.dayScores.sort((a, b) => a.day - b.day);
-          }
-          
-          // Recalculate totalScore
-          item.totalScore = item.dayScores.reduce((sum, ds) => sum + (ds.score || 0), 0);
-          needsSave = true;
-        }
-      }
-    }
-    
-    if (needsSave) {
-      await disciplineGrading.save();
     }
 
     res.status(200).json({
@@ -173,9 +165,21 @@ exports.getByClassAndWeek = async (req, res) => {
 // @access  Private
 exports.create = async (req, res) => {
   try {
-    // Kiểm tra xem đã tồn tại chưa
+    // Resolve schoolYear from the week, then check (class, schoolYear, week)
+    // uniqueness. Looking up by (class, week) alone collides across years.
+    const weekDoc = await Week.findById(req.body.week).select('schoolYear');
+    if (!weekDoc) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tuần không tìm thấy',
+      });
+    }
+    const resolvedSchoolYear =
+      req.body.schoolYear || weekDoc.schoolYear;
+
     const existing = await DisciplineGrading.findOne({
       class: req.body.class,
+      schoolYear: resolvedSchoolYear,
       week: req.body.week,
     });
 
@@ -185,6 +189,9 @@ exports.create = async (req, res) => {
         message: 'Dữ liệu chấm điểm cho lớp và tuần này đã tồn tại',
       });
     }
+
+    // Ensure schoolYear is set on the body so the unique index agrees
+    req.body.schoolYear = resolvedSchoolYear;
 
     // Thêm người tạo nếu có req.user
     if (req.user) {
@@ -202,6 +209,13 @@ exports.create = async (req, res) => {
       data: populated,
     });
   } catch (error) {
+    // H1: Race condition — duplicate key error from unique index
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Dữ liệu chấm điểm cho lớp và tuần này đã tồn tại',
+      });
+    }
     res.status(500).json({
       success: false,
       message: 'Lỗi server',
@@ -287,6 +301,14 @@ exports.delete = async (req, res) => {
         message: 'Không thể xóa dữ liệu đã khóa',
       });
     }
+
+    // Clean up orphaned ViolationLog rows before deleting the grading record
+    const ViolationLog = require('../models/ViolationLog');
+    await ViolationLog.deleteMany({
+      class: disciplineGrading.class,
+      week: disciplineGrading.week,
+      source: 'conduct_grading',
+    });
 
     await DisciplineGrading.findByIdAndDelete(req.params.id);
 
@@ -411,22 +433,27 @@ exports.startGrading = async (req, res) => {
       });
     }
 
-    // Check if already exists
-    const existing = await DisciplineGrading.findOne({ class: classId, week });
-    if (existing) {
-      return res.status(400).json({
-        success: false,
-        message: 'Dữ liệu chấm điểm cho lớp và tuần này đã tồn tại',
-        data: existing,
-      });
-    }
-
-    // Get week and school year info
+    // Check if already exists — scope by (class, schoolYear, week) so that
+    // records from previous school years do not block creation in the
+    // current one. The (class, week) tuple alone is ambiguous across years
+    // because `week` ObjectId is regenerated each year.
     const weekDoc = await Week.findById(week);
     if (!weekDoc) {
       return res.status(404).json({
         success: false,
         message: 'Tuần không tìm thấy',
+      });
+    }
+    const existing = await DisciplineGrading.findOne({
+      class: classId,
+      schoolYear: weekDoc.schoolYear,
+      week,
+    });
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: 'Dữ liệu chấm điểm cho lớp và tuần này đã tồn tại',
+        data: existing,
       });
     }
 
@@ -539,6 +566,13 @@ exports.startGrading = async (req, res) => {
       data: populated,
     });
   } catch (error) {
+    // H1: Race condition — duplicate key error from unique index
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Dữ liệu chấm điểm cho lớp và tuần này đã tồn tại',
+      });
+    }
     res.status(500).json({
       success: false,
       message: 'Lỗi server',
@@ -683,6 +717,7 @@ exports.removeSyncedViolations = async (req, res) => {
       class: disciplineGrading.class,
       week: disciplineGrading.week,
       date: { $gte: startOfDay, $lte: endOfDay },
+      source: 'conduct_grading',
     };
 
     if (violationTypeName) {

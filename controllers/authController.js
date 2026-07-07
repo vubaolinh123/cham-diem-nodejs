@@ -4,7 +4,13 @@ const { sendResponse, sendError, getRolePermissions } = require('../utils/helper
 
 const register = async (req, res, next) => {
   try {
-    const { email, password, fullName, role } = req.body;
+    const { email, password, fullName } = req.body;
+
+    // Security: public registration is always lowest-privilege ('Cờ đỏ').
+    // The `role` field from the request body is intentionally ignored to
+    // prevent self-escalation to 'Quản trị' (admin) via the public endpoint.
+    // Admin accounts must be created through POST /api/users (admin-only).
+    const role = 'Cờ đỏ';
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -17,8 +23,8 @@ const register = async (req, res, next) => {
       email,
       password,
       fullName,
-      role: role || 'Cờ đỏ',
-      permissions: getRolePermissions(role || 'Cờ đỏ'),
+      role,
+      permissions: getRolePermissions(role),
     });
 
     await user.save();

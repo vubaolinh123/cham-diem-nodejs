@@ -273,6 +273,8 @@ const deleteStudent = async (req, res, next) => {
     // Import related models
     const ViolationLog = require('../models/ViolationLog');
     const DisciplineGrading = require('../models/DisciplineGrading');
+    const WeeklySummary = require('../models/WeeklySummary');
+    const MonthlySummary = require('../models/MonthlySummary');
 
     // Delete violations
     const violationsResult = await ViolationLog.deleteMany({ student: id });
@@ -281,6 +283,24 @@ const deleteStudent = async (req, res, next) => {
     const disciplineResult = await DisciplineGrading.updateMany(
       { 'items.dayScores.violatingStudentIds': id },
       { $pull: { 'items.$[].dayScores.$[].violatingStudentIds': id } }
+    );
+
+    // Remove student from WeeklySummary topViolators
+    const weeklySummaryResult = await WeeklySummary.updateMany(
+      { 'violations.topViolators.student': id },
+      { $pull: { 'violations.topViolators': { student: id } } }
+    );
+
+    // Remove student from MonthlySummary violations.topViolators
+    const monthlySummaryResult = await MonthlySummary.updateMany(
+      { 'violations.topViolators.student': id },
+      { $pull: { 'violations.topViolators': { student: id } } }
+    );
+
+    // Remove student from Class.students array
+    const classUpdateResult = await Class.updateMany(
+      { students: id },
+      { $pull: { students: id } }
     );
 
     // Delete the student
@@ -300,7 +320,12 @@ const deleteStudent = async (req, res, next) => {
       },
       violations: violationsResult.deletedCount,
       disciplineRecordsUpdated: disciplineResult.modifiedCount,
-      total: violationsResult.deletedCount + disciplineResult.modifiedCount,
+      weeklySummaryRecordsUpdated: weeklySummaryResult.modifiedCount,
+      monthlySummaryRecordsUpdated: monthlySummaryResult.modifiedCount,
+      classesUpdated: classUpdateResult.modifiedCount,
+      total: violationsResult.deletedCount + disciplineResult.modifiedCount +
+             weeklySummaryResult.modifiedCount + monthlySummaryResult.modifiedCount +
+             classUpdateResult.modifiedCount,
     };
 
     return sendResponse(res, 200, true, 'Xóa học sinh và dữ liệu liên quan thành công', { deleted });
@@ -386,6 +411,8 @@ const bulkDeleteStudents = async (req, res, next) => {
     // Import related models
     const ViolationLog = require('../models/ViolationLog');
     const DisciplineGrading = require('../models/DisciplineGrading');
+    const WeeklySummary = require('../models/WeeklySummary');
+    const MonthlySummary = require('../models/MonthlySummary');
 
     // Delete violations
     const violationsResult = await ViolationLog.deleteMany({ student: { $in: studentIds } });
@@ -394,6 +421,24 @@ const bulkDeleteStudents = async (req, res, next) => {
     const disciplineResult = await DisciplineGrading.updateMany(
       { 'items.dayScores.violatingStudentIds': { $in: studentIds } },
       { $pullAll: { 'items.$[].dayScores.$[].violatingStudentIds': studentIds } }
+    );
+
+    // Remove students from WeeklySummary topViolators
+    const weeklySummaryResult = await WeeklySummary.updateMany(
+      { 'violations.topViolators.student': { $in: studentIds } },
+      { $pull: { 'violations.topViolators': { student: { $in: studentIds } } } }
+    );
+
+    // Remove students from MonthlySummary violations.topViolators
+    const monthlySummaryResult = await MonthlySummary.updateMany(
+      { 'violations.topViolators.student': { $in: studentIds } },
+      { $pull: { 'violations.topViolators': { student: { $in: studentIds } } } }
+    );
+
+    // Remove students from Class.students array
+    const classUpdateResult = await Class.updateMany(
+      { students: { $in: studentIds } },
+      { $pullAll: { students: studentIds } }
     );
 
     // Delete the students
@@ -408,8 +453,11 @@ const bulkDeleteStudents = async (req, res, next) => {
       students: studentsResult.deletedCount,
       violations: violationsResult.deletedCount,
       disciplineRecordsUpdated: disciplineResult.modifiedCount,
-      classesUpdated: Object.keys(classCounts).length,
-      total: studentsResult.deletedCount + violationsResult.deletedCount + disciplineResult.modifiedCount,
+      weeklySummaryRecordsUpdated: weeklySummaryResult.modifiedCount,
+      monthlySummaryRecordsUpdated: monthlySummaryResult.modifiedCount,
+      classesUpdated: classUpdateResult.modifiedCount,
+      total: studentsResult.deletedCount + violationsResult.deletedCount + disciplineResult.modifiedCount +
+             weeklySummaryResult.modifiedCount + monthlySummaryResult.modifiedCount + classUpdateResult.modifiedCount,
     };
 
     return sendResponse(res, 200, true, 'Xóa học sinh và dữ liệu liên quan thành công', { deleted });

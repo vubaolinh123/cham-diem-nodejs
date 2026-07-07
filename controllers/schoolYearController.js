@@ -1,5 +1,6 @@
 const SchoolYear = require('../models/SchoolYear');
 const Week = require('../models/Week');
+const User = require('../models/User');
 const { sendResponse, sendError } = require('../utils/helpers');
 
 /**
@@ -414,6 +415,14 @@ const deleteSchoolYear = async (req, res, next) => {
       ConductScore.deleteMany({ class: { $in: classIds } }),
       AcademicScore.deleteMany({ class: { $in: classIds } }),
     ]);
+
+    // Unset assignedClass for all teachers assigned to classes in this school year
+    if (classIds.length > 0) {
+      await User.updateMany(
+        { assignedClass: { $in: classIds } },
+        { $unset: { assignedClass: '' } }
+      );
+    }
 
     // Delete all classes
     const classesResult = await Class.deleteMany({ schoolYear: id });

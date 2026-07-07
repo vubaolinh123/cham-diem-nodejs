@@ -16,6 +16,18 @@ const weeklySummarySchema = new mongoose.Schema(
       required: [true, 'Lớp là bắt buộc'],
     },
 
+    // Năm học
+    // NOTE: schoolYear is needed in the unique index because `week` is an ObjectId
+    // that is recreated per school year. Without schoolYear in the unique key,
+    // a record from an old school year would block creating a record for the
+    // same (class, weekNumber) in a new school year → false "duplicate" error.
+    // Before applying this index on an existing database, run
+    // scripts/check-weekly-summary-duplicates.js and scripts/fix-weekly-summary-duplicates.js.
+    schoolYear: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'SchoolYear',
+    },
+
     // Điểm nề nếp
     conductScores: {
       // Tổng điểm nề nếp trong tuần
@@ -238,7 +250,7 @@ const weeklySummarySchema = new mongoose.Schema(
 );
 
 // Index cho tìm kiếm nhanh
-weeklySummarySchema.index({ week: 1, class: 1 }, { unique: true });
+weeklySummarySchema.index({ schoolYear: 1, week: 1, class: 1 }, { unique: true });
 weeklySummarySchema.index({ week: 1 });
 weeklySummarySchema.index({ class: 1 });
 weeklySummarySchema.index({ status: 1 });

@@ -1,5 +1,6 @@
 const Class = require('../models/Class');
 const Student = require('../models/Student');
+const User = require('../models/User');
 const { sendResponse, sendError } = require('../utils/helpers');
 
 /**
@@ -298,6 +299,15 @@ const deleteClass = async (req, res, next) => {
       ConductScore.deleteMany({ class: id }),
       AcademicScore.deleteMany({ class: id }),
     ]);
+
+    // Unset assignedClass for teachers assigned to this class
+    const teacherIds = [classData.homeRoomTeacher, classData.classLeader, classData.viceClassLeader].filter(Boolean);
+    if (teacherIds.length > 0) {
+      await User.updateMany(
+        { _id: { $in: teacherIds } },
+        { $unset: { assignedClass: '' } }
+      );
+    }
 
     // Delete the class itself
     await Class.findByIdAndDelete(id);

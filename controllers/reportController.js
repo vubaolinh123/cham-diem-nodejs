@@ -391,8 +391,8 @@ const getMonthlyReport = async (req, res, next) => {
     // Lấy tổng hợp tháng
     const summaries = await MonthlySummary.find(filter)
       .populate('class', 'name grade')
-      .populate('honorRoll.student', 'studentId fullName')
-      .populate('criticalList.student', 'studentId fullName')
+      .populate('honorRoll.class', 'name grade')
+      .populate('criticalList.class', 'name grade')
       .sort({ 'classification.totalScore': -1 });
 
     // Tính ranking

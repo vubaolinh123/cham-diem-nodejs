@@ -231,7 +231,16 @@ classAcademicGradingSchema.pre('save', function (next) {
 });
 
 // Index cho tìm kiếm nhanh
-classAcademicGradingSchema.index({ class: 1, week: 1 }, { unique: true });
+// NOTE: Bắt buộc phải có schoolYear trong unique key vì `week` là ObjectId
+// theo từng năm học (mỗi năm học tạo lại bộ tuần mới). Nếu chỉ unique
+// theo (class, week) thì record của năm học cũ sẽ chặn việc tạo record
+// cho cùng (class, weekNumber) ở năm học mới → lỗi "đã tồn tại" sai.
+// Trước khi áp dụng index này trên môi trường đang có data, chạy
+// scripts/check-class-academic-duplicates.js và scripts/fix-class-academic-duplicates.js.
+classAcademicGradingSchema.index(
+  { class: 1, schoolYear: 1, week: 1 },
+  { unique: true }
+);
 classAcademicGradingSchema.index({ schoolYear: 1 });
 classAcademicGradingSchema.index({ week: 1 });
 classAcademicGradingSchema.index({ status: 1 });

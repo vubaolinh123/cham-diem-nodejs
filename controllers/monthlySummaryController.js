@@ -62,8 +62,8 @@ const getMonthlySummaryById = async (req, res, next) => {
       .populate('weeks', 'weekNumber startDate endDate')
       .populate('violations.byType.violationType', 'name category')
       .populate('violations.topViolators.student', 'studentId fullName')
-      .populate('honorRoll.student', 'studentId fullName')
-      .populate('criticalList.student', 'studentId fullName');
+      .populate('honorRoll.class', 'name grade')
+      .populate('criticalList.class', 'name grade');
 
     if (!summary) {
       return sendError(res, 404, 'Tổng hợp tháng không tìm thấy');
@@ -307,7 +307,7 @@ const generateHonorRoll = (weeklySummaries) => {
   return weeklySummaries
     .filter((s) => ['Cờ đỏ', 'Cờ xanh'].includes(s.classification.flag))
     .map((s) => ({
-      student: s.class,
+      class: s.class,
       score: s.classification.totalScore,
       flag: s.classification.flag,
     }));
@@ -321,7 +321,7 @@ const generateCriticalList = (weeklySummaries) => {
   return weeklySummaries
     .filter((s) => ['Cờ vàng', 'Không xếp cờ'].includes(s.classification.flag))
     .map((s) => ({
-      student: s.class,
+      class: s.class,
       score: s.classification.totalScore,
       flag: s.classification.flag,
     }));

@@ -262,6 +262,19 @@ const lockWeek = async (req, res, next) => {
       { path: 'lockedBy', select: 'fullName email' },
     ]);
 
+    // Cascade lock status to all grading records for this week
+    const DisciplineGrading = require('../models/DisciplineGrading');
+    const ClassAcademicGrading = require('../models/ClassAcademicGrading');
+    const WeeklySummary = require('../models/WeeklySummary');
+
+    await Promise.all([
+      DisciplineGrading.updateMany({ week: id }, { status: 'Khóa' }),
+      ClassAcademicGrading.updateMany({ week: id }, { status: 'Khóa' }),
+      ConductScore.updateMany({ week: id }, { status: 'Khóa' }),
+      AcademicScore.updateMany({ week: id }, { status: 'Khóa' }),
+      WeeklySummary.updateMany({ week: id, status: { $in: ['Nháp', 'Hoàn thành', 'Duyệt'] } }, { status: 'Khóa' }),
+    ]);
+
     return sendResponse(res, 200, true, 'Khóa tuần thành công', {
       week,
     });
@@ -299,13 +312,29 @@ const unlockWeek = async (req, res, next) => {
       { path: 'schoolYear', select: 'year' },
     ]);
 
-    // Recalculate all WeeklySummaries for this week
-    const { updateWeeklySummary } = require('../utils/weeklySummaryHelper');
+    // Cascade unlock status to all grading records for this week
+    const DisciplineGrading = require('../models/DisciplineGrading');
+    const ClassAcademicGrading = require('../models/ClassAcademicGrading');
     const WeeklySummary = require('../models/WeeklySummary');
+
+    await Promise.all([
+      DisciplineGrading.updateMany({ week: id }, { status: 'Nháp' }),
+      ClassAcademicGrading.updateMany({ week: id }, { status: 'Nháp' }),
+      ConductScore.updateMany({ week: id }, { status: 'Nháp' }),
+      AcademicScore.updateMany({ week: id }, { status: 'Nháp' }),
+      WeeklySummary.updateMany({ week: id }, { status: 'Nháp' }),
+    ]);
+
+    // Recalculate all WeeklySummaries for this week (parallel with per-class error swallowing)
+    const { updateWeeklySummary } = require('../utils/weeklySummaryHelper');
     const summaries = await WeeklySummary.find({ week: id });
-    for (const summary of summaries) {
-      await updateWeeklySummary(id, summary.class.toString(), req.userId);
-    }
+    await Promise.all(summaries.map(async (s) => {
+      try {
+        await updateWeeklySummary(id, s.class.toString(), req.userId);
+      } catch (err) {
+        console.error(`updateWeeklySummary failed for class ${s.class}:`, err.message);
+      }
+    }));
 
     return sendResponse(res, 200, true, 'Mở khóa tuần thành công. Đã tính lại dữ liệu.', {
       week,

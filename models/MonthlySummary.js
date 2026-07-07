@@ -174,26 +174,27 @@ const monthlySummarySchema = new mongoose.Schema(
       ranking: Number,
     },
 
-    // Danh sách danh dự (học sinh xuất sắc)
+    // Danh sách danh dự (lớp xuất sắc)
     honorRoll: [
       {
-        student: {
+        class: {
           type: mongoose.Schema.Types.ObjectId,
-          ref: 'Student',
+          ref: 'Class',
         },
-        reason: String,
+        score: Number,
+        flag: String,
       },
     ],
 
-    // Danh sách phê bình (học sinh cần cải thiện)
+    // Danh sách phê bình (lớp cần cải thiện)
     criticalList: [
       {
-        student: {
+        class: {
           type: mongoose.Schema.Types.ObjectId,
-          ref: 'Student',
+          ref: 'Class',
         },
-        reason: String,
-        violationCount: Number,
+        score: Number,
+        flag: String,
       },
     ],
 

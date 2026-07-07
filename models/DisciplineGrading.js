@@ -207,7 +207,16 @@ disciplineGradingSchema.methods.calculateMaxPossibleScore = function () {
 };
 
 // Index cho tìm kiếm nhanh
-disciplineGradingSchema.index({ class: 1, week: 1 }, { unique: true });
+// NOTE: Bắt buộc phải có schoolYear trong unique key vì `week` là ObjectId
+// theo từng năm học (mỗi năm học tạo lại bộ tuần mới). Nếu chỉ unique
+// theo (class, week) thì record của năm học cũ sẽ chặn việc tạo record
+// cho cùng (class, weekNumber) ở năm học mới → lỗi "đã tồn tại" sai.
+// Trước khi áp dụng index này trên môi trường đang có data, chạy
+// scripts/check-discipline-duplicates.js và scripts/fix-discipline-duplicates.js.
+disciplineGradingSchema.index(
+  { class: 1, schoolYear: 1, week: 1 },
+  { unique: true }
+);
 disciplineGradingSchema.index({ schoolYear: 1 });
 disciplineGradingSchema.index({ week: 1 });
 disciplineGradingSchema.index({ status: 1 });
